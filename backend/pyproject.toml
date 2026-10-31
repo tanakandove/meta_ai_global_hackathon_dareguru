@@ -1,0 +1,16 @@
+[project]
+name = "projectpulse"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi",
+    "uvicorn[standard]",
+    "openai",
+    "httpx",
+    "pydantic",
+    "python-dotenv",
+    "notion-client",
+    "langgraph",
+    "langgraph-checkpoint-postgres",
+    "psycopg[binary,pool]",
+]
