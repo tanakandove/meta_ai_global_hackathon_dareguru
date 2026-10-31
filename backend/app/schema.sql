@@ -160,3 +160,8 @@ CREATE TABLE IF NOT EXISTS audit_log (
     at          TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS audit_entity_idx ON audit_log(entity_type, entity_id);
+
+-- Projects come from the Notion Projects database; tasks reach them through a relation.
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS notion_page_id TEXT UNIQUE;
+ALTER TABLE projects ADD COLUMN IF NOT EXISTS client TEXT NOT NULL DEFAULT '';
+ALTER TABLE notion_tasks ADD COLUMN IF NOT EXISTS project_page_id TEXT;
