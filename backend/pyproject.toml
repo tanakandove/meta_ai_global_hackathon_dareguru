@@ -19,3 +19,7 @@ dependencies = [
 dev = [
     "pytest>=9.2.0",
 ]
+
+[tool.pytest.ini_options]
+markers = ["live: calls the Meta Model API (costs tokens, output varies)"]
+addopts = "-m 'not live'"

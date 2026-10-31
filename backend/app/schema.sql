@@ -165,3 +165,9 @@ CREATE INDEX IF NOT EXISTS audit_entity_idx ON audit_log(entity_type, entity_id)
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS notion_page_id TEXT UNIQUE;
 ALTER TABLE projects ADD COLUMN IF NOT EXISTS client TEXT NOT NULL DEFAULT '';
 ALTER TABLE notion_tasks ADD COLUMN IF NOT EXISTS project_page_id TEXT;
+
+-- Extraction output kept alongside the source: meeting project and the speaker-name inferences.
+ALTER TABLE sources ADD COLUMN IF NOT EXISTS extraction JSONB;
+-- False when the model's excerpt could not be found verbatim in the transcript.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS excerpt_verified BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE events ADD COLUMN IF NOT EXISTS project_hint TEXT;
