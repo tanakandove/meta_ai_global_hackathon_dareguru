@@ -171,3 +171,10 @@ ALTER TABLE sources ADD COLUMN IF NOT EXISTS extraction JSONB;
 -- False when the model's excerpt could not be found verbatim in the transcript.
 ALTER TABLE events ADD COLUMN IF NOT EXISTS excerpt_verified BOOLEAN NOT NULL DEFAULT TRUE;
 ALTER TABLE events ADD COLUMN IF NOT EXISTS project_hint TEXT;
+
+-- Reconcile bookkeeping: an event is processed once, so a re-run is a no-op.
+ALTER TABLE events ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
+-- A Notion task is tracked by at most one live commitment, which prevents duplicate records.
+CREATE UNIQUE INDEX IF NOT EXISTS commitments_one_live_per_task
+    ON commitments (notion_page_id)
+    WHERE notion_page_id IS NOT NULL AND state IN ('proposed', 'open', 'resolution_proposed');
