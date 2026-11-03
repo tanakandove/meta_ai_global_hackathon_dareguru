@@ -120,8 +120,8 @@ a { color: var(--accent-text); }
 .drop strong { color: var(--text); }
 
 /* ---- review inbox ---- */
-.run-card { margin-top: 20px; overflow: hidden; }
-.run-head { padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.run-card { margin-top: 20px; } /* no overflow:hidden: it would stop the apply bar sticking to the window */
+.run-head { padding: 16px 18px; border-bottom: 1px solid var(--border); border-radius: var(--radius) var(--radius) 0 0; }
 .run-head h2 { font-size: 17px; }
 .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
 .items { padding: 14px; display: grid; gap: 12px; background: var(--surface-2); }
@@ -145,8 +145,9 @@ a { color: var(--accent-text); }
 .pick[aria-pressed="true"].edit { background: var(--accent-soft); border-color: var(--accent); color: var(--accent-text); }
 .editor { margin-top: 12px; padding: 14px; background: var(--surface-2); border-radius: 8px; display: grid; gap: 10px; }
 .applybar {
-  position: sticky; bottom: 0; display: flex; align-items: center; gap: 12px; padding: 12px 18px;
-  background: var(--surface); border-top: 1px solid var(--border);
+  position: sticky; bottom: 0; z-index: 5; display: flex; align-items: center; gap: 12px; padding: 12px 18px;
+  background: var(--surface); border-top: 1px solid var(--border); border-radius: 0 0 var(--radius) var(--radius);
+  box-shadow: 0 -6px 16px rgba(16, 24, 40, 0.08);
 }
 
 /* ---- follow-up center ---- */

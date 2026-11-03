@@ -25,15 +25,19 @@ VOICES = {
     "Alex": "en_US-joe-medium",
 }
 
+# Written the way people talk: most speakers are addressed by name, so Muse Spark can work out who is who
+# from context. Nobody speaks to Sam, so he stays unidentified and the reviewer assigns him. Deadlines are
+# plain weekdays ("by Friday", "by Wednesday") so they resolve the same way on every take.
 DIALOGUE = [
-    ("Dana", "Okay, quick sync on the dashboard install. Before we wrap, a few updates."),
-    ("Dana", "I'll send the revised hardware specifications to Facilities by Friday."),
+    ("Dana", "Morning everyone. Quick sync on the MidTown dashboard install. Priya, how is the cabling plan?"),
+    ("Priya", "Good news, Dana. I sent the cabling plan to Facilities yesterday, and they have everything they need."),
+    ("Dana", "Great. Marcus, where are we on the display mounting?"),
+    ("Marcus", "Thanks, Dana. I've started measuring the display mounting locations, but I'm blocked on access to the second floor."),
     ("Sam", "We could consider contacting the vendor about the rack mounts, but I'm not sure that's needed yet."),
-    ("Priya", "On the cabling plan, I sent it to Facilities yesterday. They have everything they need."),
-    ("Marcus", "I've started measuring the display mounting locations. I'm about halfway through, but I'm blocked on access to the second floor."),
-    ("Dana", "Alex, can you get the NUC configuration checklist ready before next Wednesday?"),
-    ("Alex", "Yes, I'll have it done by then."),
-    ("Dana", "Great, that's it. Thanks everyone."),
+    ("Dana", "Okay. I'll send the revised hardware specifications to Facilities by Friday."),
+    ("Dana", "Alex, can you get the NUC configuration checklist ready by Wednesday?"),
+    ("Alex", "Yes, I'll have it done by Wednesday."),
+    ("Dana", "Perfect. That's it. Thanks everyone."),
 ]
 
 

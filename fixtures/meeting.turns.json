@@ -2,50 +2,57 @@
   {
     "index": 0,
     "speaker": "A",
-    "text": "Okay, quick quick sync on the dashboard install. before we wrap. A few updates. I'll send the revised hardware specifications to facilities by Friday.",
-    "start_ms": 60,
-    "end_ms": 11340
+    "text": "Morning, everyone. Quick sync on the Midtown dashboard install. Priya, how is the cabling plan?",
+    "start_ms": 140,
+    "end_ms": 6940
   },
   {
     "index": 1,
     "speaker": "B",
-    "text": "We could consider contacting the vendor vendor about the rack mounts but I'm not sure that's needed yet.",
-    "start_ms": 11420,
-    "end_ms": 16620
+    "text": "Good news, Dana. I sent the cabling plan to facilities yesterday and they have everything they need.",
+    "start_ms": 7420,
+    "end_ms": 13820
   },
   {
     "index": 2,
-    "speaker": "C",
-    "text": "On the cabling plan, I sent it to facilities yesterday. They have everything they need.",
-    "start_ms": 16860,
-    "end_ms": 21980
+    "speaker": "A",
+    "text": "Great, Marcus. Where are we on the display mounting?",
+    "start_ms": 14220,
+    "end_ms": 18220
   },
   {
     "index": 3,
-    "speaker": "D",
-    "text": "I've started measuring the display mounting locations. I'm about halfway through. But I'm blocked on access to the second floor.",
-    "start_ms": 22220,
-    "end_ms": 30700
+    "speaker": "C",
+    "text": "Thanks, Dana. I've started measuring the display mounting locations but I'm blocked on access to the second floor.",
+    "start_ms": 18460,
+    "end_ms": 26300
   },
   {
     "index": 4,
-    "speaker": "A",
-    "text": "Alex, can you get the NUC configuration checklist ready before next Wednesday?",
-    "start_ms": 30780,
-    "end_ms": 36460
+    "speaker": "D",
+    "text": "We could consider contacting the contacting the vendor about the rack mounts, but I'm not sure that's needed yet.",
+    "start_ms": 26460,
+    "end_ms": 31500
   },
   {
     "index": 5,
-    "speaker": "E",
-    "text": "Yes, I'll have it done by then.",
-    "start_ms": 36620,
-    "end_ms": 38860
+    "speaker": "A",
+    "text": "Okay, I'll send the revised hardware specifications to facilities by Friday. Alex, Alex, can you get the NUC configuration checklist ready by Wednesday?",
+    "start_ms": 31820,
+    "end_ms": 42780
   },
   {
     "index": 6,
+    "speaker": "E",
+    "text": "Yes, I'll have it done by Wednesday.",
+    "start_ms": 42860,
+    "end_ms": 45740
+  },
+  {
+    "index": 7,
     "speaker": "A",
-    "text": "Great. That's it. Thanks everyone.",
-    "start_ms": 39100,
-    "end_ms": 42060
+    "text": "Perfect. That's it. it. Thanks everyone.",
+    "start_ms": 45820,
+    "end_ms": 49260
   }
 ]
