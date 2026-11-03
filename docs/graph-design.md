@@ -6,16 +6,42 @@ Every design choice below has a recorded rationale. Run `python scripts/explain_
 
 ## Flow
 
+```mermaid
+flowchart TD
+    input(["Audio, transcript or follow-up text"]) --> ingest["Ingest<br/>hash, dedupe, meeting date"]
+
+    ingest -->|duplicate| end1(["END: already processed"])
+    ingest -->|new audio| transcribe["Transcribe<br/>Muse Voice Transcribe"]
+    ingest -->|new text| context
+    transcribe --> context["Retrieve context<br/>refresh Notion, load people, projects, tasks"]
+
+    context --> extract["Extract<br/>Muse Spark call 1"]
+    extract -->|no events| end2(["END: nothing found"])
+    extract -->|events found| match["Match<br/>project first, then task"]
+
+    match --> reconcile["Reconcile<br/>Muse Spark call 2: pass 1, then pass 2<br/>saves review items"]
+    reconcile -->|nothing needs review| persist
+    reconcile -->|items need review| review["Human review<br/>interrupt: wait for decisions"]
+
+    review -->|all rejected| persist
+    review -->|at least one approved| validate["Validate<br/>recheck against current Notion state"]
+
+    validate -->|still valid| execute["Execute<br/>idempotent Notion write"]
+    validate -->|state changed: new review item| review
+
+    execute --> persist["Persist<br/>state changes, evidence, audit"]
+    persist --> end3(["END"])
+
+    transcribe & context & extract & reconcile & execute -.->|error after one retry| fail(["END: error recorded"])
 ```
-ingest(hash, dedupe, date) ─► [audio] transcribe ─► retrieve_context(refresh Notion) ─► extract (Spark 1)
-   │ duplicate → END                                                                       │ no events → END
-   ▼                                                                                       ▼
- match(project, then task) ─► reconcile (Spark 2: pass 1, pass 2; saves review items) ─► nothing to review → persist
-                                                                                        │
-                                                       human_review ⏸ ─► validate ─► execute ─► persist
-                                                          ▲                  │ fails
-                                                          └── new review item┘      all rejected → persist
-```
+
+How to read it:
+
+- Solid arrows are the normal path. Dashed arrows are failures.
+- **Three places the graph stops early:** a duplicate source, no events found, or an error.
+- **One loop:** `Validate` can send the run back to `Human review`. That happens when someone edited the Notion page after the sync, so the action is no longer safe. A new review item is created and nothing is written.
+- **Two ways to reach `Persist` without writing to Notion:** nothing needed review, or the human rejected everything.
+- Text input skips `Transcribe`. Everything else is shared with audio.
 
 Transcripts and emails use the same graph with `transcribe` skipped. The email work-relevance gate from the original sketch is deferred; the audio path comes first.
 
