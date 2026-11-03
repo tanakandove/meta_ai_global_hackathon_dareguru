@@ -33,7 +33,7 @@ flowchart TD
     execute --> persist["Persist"]
     persist --> end3(["END"])
 
-    transcribe & context & extract & reconcile & execute -.->|error after retry| fail(["END: error"])
+    transcribe & context & extract & reconcile & execute -.->|error after retry| fail(["failed: retry resumes here"])
 ```
 
 How to read it:
@@ -83,6 +83,42 @@ Transcripts and emails use the same graph with `transcribe` skipped. The email w
 
 Evidence strength: a spoken claim is `claimed`. An email with an artifact is `verified`. Both only reach `resolution_proposed`; a human still approves.
 
+## What the UI sees
+
+The graph is driven through `app/runner.py`. Each function is something a person does.
+
+| Person does | Call | Result |
+|---|---|---|
+| Uploads a recording or pastes text | `start_run` / `stream_start` | A run starts. `stream_start` yields one event per node for a live progress view. |
+| Looks at a run | `get_run`, `list_runs` | Status, current node, a message, and (when paused) which items still lack a decision and whether Apply is allowed. |
+| Approves, rejects or edits an item | `submit_decision` | Saved immediately. Can be changed until Apply. |
+| Presses Apply | `apply_run` / `stream_apply` | Refused until every item has a decision, and says which are missing. Otherwise resumes the graph. |
+| Retries a failure | `retry_run` | Resumes from the checkpoint. Only valid for a `failed` run. |
+
+Run status in the `runs` table:
+
+| Status | Meaning | What the UI shows |
+|---|---|---|
+| `running` | The graph is executing `current_node`. | Progress through the nodes. |
+| `waiting_for_review` | Paused at the interrupt. No process is held. | The Review Inbox for this run, with Apply enabled once every item has a decision. |
+| `completed` | Decisions applied. | The resulting Follow-Up Center state. |
+| `duplicate` | The same source was already processed. | "Already processed", with a pointer to the earlier run. |
+| `no_events` | Nothing actionable was found. | "Nothing to follow up." |
+| `failed` | A node failed twice. | The error message and a Retry button. |
+
+The graph stops in exactly two ways: a terminal status, or the pause at `waiting_for_review`. A paused run survives a closed browser or a restarted server, because its state is in Postgres.
+
+## Review item actions
+
+| Item kind | Proposed action | Approve | Reject | Edit can change |
+|---|---|---|---|---|
+| `task_match` / `ambiguous_owner_or_deadline` / `uncertain_extraction` with a link | `link_task` | Commitment becomes open, linked to the task. No Notion write. | Commitment rejected. | owner, due, which task |
+| Commitment with no match | `create_task` | Notion task created, commitment open. | Commitment rejected. | title, owner, due |
+| `potential_completion` | `resolve_task` | Notion task set to Done with an evidence note, commitment resolved. | Commitment returns to open. | nothing |
+| `suggestion`, `conflict`, `possible_duplicate`, other | none | Acknowledged. | Dismissed. | nothing |
+
+If an approved action cannot proceed (the Notion task changed, was completed, or a similar task already exists), the item is resolved and a fresh `conflict` item replaces it, carrying the reason.
+
 ## Early exits and failure paths
 
 - Duplicate source: end after ingest.
@@ -90,7 +126,7 @@ Evidence strength: a spoken claim is `claimed`. An email with an artifact is `ve
 - Nothing needs review: go straight to persist.
 - All items rejected: skip execute, persist the rejections.
 - Validate fails: create a new review item ("Notion changed since sync"). Nothing is written.
-- Spark or Notion error: one retry, then stop with a recorded error.
+- Spark or Notion error: one retry, then the run is marked `failed` and the checkpoint is kept before the failing node. Retry resumes from there; idempotency keys make a repeated write harmless.
 
 ## Safety
 

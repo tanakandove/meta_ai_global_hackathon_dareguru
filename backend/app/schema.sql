@@ -178,3 +178,24 @@ ALTER TABLE events ADD COLUMN IF NOT EXISTS reconciled_at TIMESTAMPTZ;
 CREATE UNIQUE INDEX IF NOT EXISTS commitments_one_live_per_task
     ON commitments (notion_page_id)
     WHERE notion_page_id IS NOT NULL AND state IN ('proposed', 'open', 'resolution_proposed');
+
+-- One row per graph run, so a UI can show status without reading LangGraph checkpoints.
+-- waiting_for_review means the graph is paused at its interrupt and holds no process.
+CREATE TABLE IF NOT EXISTS runs (
+    thread_id       TEXT PRIMARY KEY,
+    source_id       BIGINT REFERENCES sources(id) ON DELETE SET NULL,
+    kind            TEXT NOT NULL,
+    status          TEXT NOT NULL DEFAULT 'running' CHECK (status IN (
+                        'running', 'waiting_for_review', 'completed', 'duplicate', 'no_events', 'failed')),
+    current_node    TEXT,
+    message         TEXT NOT NULL DEFAULT '',
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- A review item has at most one decision.
+CREATE UNIQUE INDEX IF NOT EXISTS decisions_one_per_item ON decisions (review_item_id);
+
+-- locked_at: the graph consumed this decision, so it can no longer be changed.
+-- validated_at: the item was checked this round; after a loop back, only unvalidated items are checked again.
+ALTER TABLE review_items ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
+ALTER TABLE review_items ADD COLUMN IF NOT EXISTS validated_at TIMESTAMPTZ;

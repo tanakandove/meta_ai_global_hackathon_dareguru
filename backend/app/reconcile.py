@@ -7,6 +7,8 @@ the commitments pass 1 just created, so a claim made in the same meeting can sti
 Spark only judges. This module decides what that means: which records are created, which items
 need a human, and what is never done automatically (a claim never resolves anything by itself).
 """
+import re
+from dataclasses import asdict
 from typing import Callable, Literal
 from zoneinfo import ZoneInfo
 
@@ -19,6 +21,7 @@ from app.match import MIN_SCORE, TOP_K, Candidate, candidates_for, resolve_proje
 Confidence = Literal["high", "medium", "low"]
 LIVE_STATES = ("proposed", "open", "resolution_proposed")
 DUPLICATE_SIMILARITY = 0.7
+ATTACHMENT = re.compile(r"^attachments?:\s*\S+", re.I | re.M)
 
 
 class _Strict(BaseModel):
@@ -135,12 +138,17 @@ def _review(conn, kind: str, reason: str, ev: dict, commitment_id: int | None, a
     ).fetchone()["id"]
 
 
-def _evidence(conn, commitment_id: int, event_id: int, relation: str, rationale: str) -> None:
+def _evidence(conn, commitment_id: int, event_id: int, relation: str, rationale: str, strength: str = "claimed") -> None:
     conn.execute(
         """INSERT INTO evidence (commitment_id, event_id, relation, strength, rationale)
-           VALUES (%s, %s, %s, 'claimed', %s) ON CONFLICT DO NOTHING""",
-        (commitment_id, event_id, relation, rationale),
+           VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING""",
+        (commitment_id, event_id, relation, strength, rationale),
     )
+
+
+def _strength(src: dict, relation: str) -> str:
+    """A spoken or written claim is 'claimed'. An email that carries the artifact is independent evidence."""
+    return "verified" if relation == "completion" and src["kind"] == "email" and ATTACHMENT.search(src["raw_text"]) else "claimed"
 
 
 def _live_commitment(conn, page_id: str) -> dict | None:
@@ -251,7 +259,7 @@ def _apply_pass1(conn, ev: dict, dec: Pass1Decision | None, cands: list[Candidat
 
 # ---- pass 2 -------------------------------------------------------------------------------------
 
-def _apply_pass2(conn, ev: dict, dec: Pass2Decision | None, cands: list[Candidate], tasks: dict[str, dict], stats: dict) -> None:
+def _apply_pass2(conn, src: dict, ev: dict, dec: Pass2Decision | None, cands: list[Candidate], tasks: dict[str, dict], stats: dict) -> None:
     valid = {c.page_id for c in cands}
     relation, target, confidence = (dec.relation, dec.target, dec.confidence) if dec else ("unrelated", "", "low")
     note = dec.rationale if dec else "No decision was returned."
@@ -273,7 +281,8 @@ def _apply_pass2(conn, ev: dict, dec: Pass2Decision | None, cands: list[Candidat
         task = tasks[target]
         commitment = _track_task(conn, task)
     title = task["title"] if task else commitment["deliverable"]
-    _evidence(conn, commitment["id"], ev["id"], relation, note)
+    strength = _strength(src, relation)
+    _evidence(conn, commitment["id"], ev["id"], relation, note, strength)
     stats["evidence"] += 1
 
     if relation in ("progress", "blocker"):
@@ -296,10 +305,12 @@ def _apply_pass2(conn, ev: dict, dec: Pass2Decision | None, cands: list[Candidat
     if not already:
         unconfirmed = " This commitment itself is not confirmed yet." if commitment["state"] == "proposed" else ""
         _review(conn, "potential_completion",
-                f'{who} said: "{ev["excerpt"]}". That is a spoken claim, not verified evidence. Possible completion of "{title}" ({note}).{unconfirmed}',
+                (f'{who} said: "{ev["excerpt"]}". That is a claim, not verified evidence.' if strength == "claimed"
+                 else f'{who} wrote: "{ev["excerpt"]}", and the email carries an attachment, which is independent evidence.')
+                + f' Possible completion of "{title}" ({note}).{unconfirmed}',
                 ev, commitment["id"],
                 {"type": "resolve_task", "commitment_id": commitment["id"], "notion_page_id": commitment["notion_page_id"],
-                 "evidence_event_id": ev["id"], "strength": "claimed"})
+                 "evidence_event_id": ev["id"], "strength": strength})
         stats["review_items"] += 1
 
 
@@ -314,26 +325,50 @@ def _virtual_candidates(deliverable: str, owner: str | None, made: list[dict]) -
     return out
 
 
-# ---- entry point --------------------------------------------------------------------------------
+# ---- match and reconcile ------------------------------------------------------------------------
 
-def reconcile_source(source_id: int, call: LLMCall = llm.structured_call) -> dict:
-    """Reconcile every unprocessed event of a source. Idempotent: processed events are skipped."""
+def _load(source_id: int):
     with db.connect() as conn:
         src = conn.execute("SELECT * FROM sources WHERE id = %s", (source_id,)).fetchone()
         events = conn.execute("SELECT * FROM events WHERE source_id = %s AND reconciled_at IS NULL ORDER BY id", (source_id,)).fetchall()
         projects = conn.execute("SELECT id, name FROM projects").fetchall()
         tasks = {t["notion_page_id"]: t for t in conn.execute("SELECT * FROM notion_tasks").fetchall()}
+    return src, events, projects, tasks
+
+
+def _about(events: list[dict], e: dict) -> str:
+    """What a statement is about, including its neighbours in the same turn."""
+    return " ".join([e["deliverable"]] + [m["deliverable"] for m in _turn_mates(events, e)])
+
+
+def match_source(source_id: int) -> dict:
+    """The graph's match node: scope each event to its project, then shortlist tasks. Plain data, so it can ride in graph state."""
+    src, events, projects, tasks = _load(source_id)
+    meeting_project = (src["extraction"] or {}).get("meeting_project", "")
+    rows = list(tasks.values())
+    project_of = {e["id"]: resolve_project(e["project_hint"], meeting_project, projects) for e in events}
+    cands = lambda text, e: [asdict(c) for c in candidates_for(text, e["owner_name"], rows, project_of[e["id"]])]
+    return {
+        "project_of": {str(k): v for k, v in project_of.items()},
+        "pass1": {str(e["id"]): cands(e["deliverable"], e) for e in events if e["type"] in ("commitment", "request")},
+        "pass2": {str(e["id"]): cands(_about(events, e), e) for e in events if e["type"] in ("completion_claim", "progress", "blocker")},
+    }
+
+
+def reconcile_source(source_id: int, call: LLMCall = llm.structured_call, matches: dict | None = None) -> dict:
+    """Reconcile every unprocessed event of a source. Idempotent: processed events are skipped."""
+    src, events, projects, tasks = _load(source_id)
     stats = {"commitments": 0, "review_items": 0, "evidence": 0}
     if not events:
         return stats
 
+    m = matches or match_source(source_id)
     meeting_project = (src["extraction"] or {}).get("meeting_project", "")
-    task_rows = list(tasks.values())
-    project_of = {e["id"]: resolve_project(e["project_hint"], meeting_project, projects) for e in events}
+    project_of = {int(k): v for k, v in m["project_of"].items()}
     made: list[dict] = []
 
     pass1 = [e for e in events if e["type"] in ("commitment", "request")]
-    cands1 = {e["id"]: candidates_for(e["deliverable"], e["owner_name"], task_rows, project_of[e["id"]]) for e in pass1}
+    cands1 = {int(k): [Candidate(**c) for c in v] for k, v in m["pass1"].items()}
     decisions1: dict[int, Pass1Decision] = {}
     if pass1:
         res = Pass1Result.model_validate(call(PASS1_SYSTEM, _prompt(src, meeting_project, [_event_block(e, cands1[e["id"]]) for e in pass1]),
@@ -344,12 +379,9 @@ def reconcile_source(source_id: int, call: LLMCall = llm.structured_call) -> dic
             _apply_pass1(conn, e, decisions1.get(e["id"]), cands1[e["id"]], project_of[e["id"]], tasks, made, stats)
 
     pass2 = [e for e in events if e["type"] in ("completion_claim", "progress", "blocker")]
-    def about(e: dict) -> str:  # what the statement is about, including its neighbours in the same turn
-        return " ".join([e["deliverable"]] + [m["deliverable"] for m in _turn_mates(events, e)])
-
     cands2 = {
-        e["id"]: sorted(candidates_for(about(e), e["owner_name"], task_rows, project_of[e["id"]])
-                        + _virtual_candidates(about(e), e["owner_name"], made), key=lambda c: -c.score)[:TOP_K]
+        e["id"]: sorted([Candidate(**c) for c in m["pass2"][str(e["id"])]] + _virtual_candidates(_about(events, e), e["owner_name"], made),
+                        key=lambda c: -c.score)[:TOP_K]
         for e in pass2
     }
     decisions2: dict[int, Pass2Decision] = {}
@@ -359,7 +391,7 @@ def reconcile_source(source_id: int, call: LLMCall = llm.structured_call) -> dic
         decisions2 = {d.event_id: d for d in res2.decisions if d.event_id in cands2}
     with db.connect() as conn:
         for e in pass2:
-            _apply_pass2(conn, e, decisions2.get(e["id"]), cands2[e["id"]], tasks, stats)
+            _apply_pass2(conn, src, e, decisions2.get(e["id"]), cands2[e["id"]], tasks, stats)
         for e in events:
             if e["type"] == "suggestion":
                 _review(conn, "suggestion",

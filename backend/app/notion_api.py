@@ -101,3 +101,54 @@ def fetch_projects() -> list[NotionProject]:
 
 def fetch_tasks() -> list[NotionTask]:
     return [parse_task(p) for p in _query_all(data_source_id())]
+
+
+# ---- writes -------------------------------------------------------------------------------------
+
+DONE_STATUS = "Done"
+NOT_STARTED = "Not-started"
+_RICH_TEXT_LIMIT = 1900  # Notion caps one rich-text object at 2000 characters
+
+
+def _rt(text: str) -> dict:
+    return {"rich_text": [{"text": {"content": text[:_RICH_TEXT_LIMIT]}}]}
+
+
+class NotionGateway:
+    """Every Notion read and write the graph performs. Tests substitute an in-memory fake.
+
+    Writes carry a marker (an idempotency token) in the task's Evidence text so a retry after a
+    partial failure finds its own earlier write instead of repeating it.
+    """
+
+    def get_task(self, page_id: str) -> NotionTask | None:
+        page = client().pages.retrieve(page_id)
+        return None if page.get("in_trash") or page.get("archived") else parse_task(page)
+
+    def find_by_marker(self, marker: str) -> str | None:
+        resp = client().data_sources.query(
+            data_source_id(), filter={"property": "Evidence", "rich_text": {"contains": marker}}, page_size=1
+        )
+        return resp["results"][0]["id"] if resp["results"] else None
+
+    def create_task(self, *, marker: str, title: str, owner: str | None, due: str | None,
+                    project_name: str, project_page_id: str | None, evidence: str) -> str:
+        props = {
+            "Name": {"title": [{"text": {"content": title[:_RICH_TEXT_LIMIT]}}]},
+            "Owner": _rt(owner or ""),
+            "Status": {"select": {"name": NOT_STARTED}},
+            "Project": _rt(project_name),
+            "Evidence": _rt(f"{evidence} [{marker}]"),
+        }
+        if due:
+            props["Due"] = {"date": {"start": due}}
+        if project_page_id:
+            props["Project Link"] = {"relation": [{"id": project_page_id}]}
+        return client().pages.create(parent={"type": "data_source_id", "data_source_id": data_source_id()}, properties=props)["id"]
+
+    def mark_done(self, page_id: str, *, marker: str, note: str) -> None:
+        current = self.get_task(page_id)
+        evidence = current.evidence if current else ""
+        if marker not in evidence:
+            evidence = f"{evidence}\n{note} [{marker}]".strip()
+        client().pages.update(page_id, properties={"Status": {"select": {"name": DONE_STATUS}}, "Evidence": _rt(evidence)})
