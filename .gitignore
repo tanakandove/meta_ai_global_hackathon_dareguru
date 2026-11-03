@@ -8,3 +8,6 @@ dist/
 Screenshots/
 data/
 .gstack/
+API_Keys/
+.env.*
+!.env.example
