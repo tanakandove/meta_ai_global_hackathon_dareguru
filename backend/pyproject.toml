@@ -13,6 +13,7 @@ dependencies = [
     "langgraph",
     "langgraph-checkpoint-postgres",
     "psycopg[binary,pool]",
+    "python-multipart>=0.0.33",
 ]
 
 [dependency-groups]

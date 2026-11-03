@@ -55,18 +55,24 @@ def fast_retries(monkeypatch):
 
 
 def purge(pool) -> None:
-    """Remove everything these tests create. Runs before and after each test so a crashed run cannot poison the next."""
+    """Remove everything these tests create, and nothing else. Runs before and after each test.
+
+    Test sources are recognised by their meeting project, so real runs in the same database are never touched.
+    """
     with db.connect() as conn:
         mids = [r["id"] for r in conn.execute("SELECT id FROM projects WHERE name LIKE %s", (P + "%",))]
-        runs = conn.execute("SELECT thread_id, source_id FROM runs").fetchall()
+        runs = conn.execute(
+            """SELECT r.thread_id, r.source_id FROM runs r JOIN sources s ON s.id = r.source_id
+               WHERE s.extraction->>'meeting_project' LIKE %s""", (P + "%",)).fetchall()
         sids = [r["source_id"] for r in runs if r["source_id"]]
         threads = [r["thread_id"] for r in runs]
         cids = [r["id"] for r in conn.execute("SELECT id FROM commitments WHERE project_id = ANY(%s)", (mids,))]
+        rids = [r["id"] for r in conn.execute("SELECT id FROM review_items WHERE source_id = ANY(%s)", (sids,))]
         conn.execute("DELETE FROM executions WHERE payload->>'commitment_id' = ANY(%s)", ([str(c) for c in cids],))
-        conn.execute("DELETE FROM decisions WHERE review_item_id IN (SELECT id FROM review_items WHERE source_id = ANY(%s))", (sids,))
-        conn.execute("DELETE FROM review_items WHERE source_id = ANY(%s)", (sids,))
+        conn.execute("DELETE FROM decisions WHERE review_item_id = ANY(%s)", (rids,))
+        conn.execute("DELETE FROM audit_log WHERE entity_type = 'review_item' AND entity_id = ANY(%s)", (rids,))
+        conn.execute("DELETE FROM review_items WHERE id = ANY(%s)", (rids,))
         conn.execute("DELETE FROM audit_log WHERE entity_type = 'commitment' AND entity_id = ANY(%s)", (cids,))
-        conn.execute("DELETE FROM audit_log WHERE entity_type = 'review_item'")
         conn.execute("DELETE FROM commitments WHERE id = ANY(%s)", (cids,))
         conn.execute("DELETE FROM runs WHERE thread_id = ANY(%s)", (threads,))
         conn.execute("DELETE FROM sources WHERE id = ANY(%s)", (sids,))
@@ -132,8 +138,16 @@ def approve_all(run):
         runner.submit_decision(r["id"], "approve")
 
 
+TEST_COMMITMENTS = "SELECT c.* FROM commitments c JOIN projects p ON p.id = c.project_id WHERE p.name LIKE 'gtest-%%'"
+
+
 def commitments():
-    return {r["notion_page_id"] or r["deliverable"]: r for r in rows("SELECT * FROM commitments")}
+    return {r["notion_page_id"] or r["deliverable"]: r for r in rows(TEST_COMMITMENTS)}
+
+
+def executions():
+    """Executions of the test project's commitments only."""
+    return rows(f"SELECT * FROM executions WHERE (payload->>'commitment_id')::bigint IN (SELECT id FROM ({TEST_COMMITMENTS}) t)")
 
 
 # ---- the contract -------------------------------------------------------------------------------
@@ -166,7 +180,7 @@ def test_graph_pauses_for_review_then_applies(world):
     assert world["gw"].pages[P + "specs"].status == "In-progress"  # linking never writes to Notion
     assert world["gw"].calls.count("mark_done_applied") == 1
     assert all(r["status"] == "resolved" for r in rows("SELECT status FROM review_items WHERE source_id = %s", run["source_id"]))
-    assert [r["status"] for r in rows("SELECT status FROM executions")] == ["done"]
+    assert [r["status"] for r in executions()] == ["done"]
 
 
 def test_a_decision_can_change_until_apply_then_is_locked(world):
@@ -190,7 +204,7 @@ def test_rejecting_everything_writes_nothing_and_restores_state(world):
     c = commitments()
     assert c[P + "specs"]["state"] == "rejected"
     assert c[P + "cabling"]["state"] == "open"  # the proposed resolution was declined
-    assert "mark_done_applied" not in world["gw"].calls and rows("SELECT 1 FROM executions") == []
+    assert "mark_done_applied" not in world["gw"].calls and executions() == []
 
 
 def test_notion_edited_after_sync_loops_back_for_another_review(world):
@@ -227,7 +241,7 @@ def test_failed_write_is_recorded_retryable_and_applied_exactly_once(world):
     assert done["status"] == "completed"
     assert world["gw"].calls.count("mark_done_applied") == 1
     assert world["gw"].pages[P + "cabling"].evidence.count("[pp-") == 1
-    assert [r["status"] for r in rows("SELECT status FROM executions")] == ["done"]
+    assert [r["status"] for r in executions()] == ["done"]
     with pytest.raises(actions.DecisionError, match="failed run"):
         runner.retry_run(run["thread_id"], graph)
 
@@ -245,7 +259,7 @@ def test_creating_a_task_survives_a_crash_after_the_remote_write(world):
     created = [p for p in world["gw"].pages.values() if p.title == "order spare patch cables"]
     assert len(created) == 1                                      # the retry found its own page by marker
     assert world["gw"].calls.count("create_task") == 1
-    (c,) = rows("SELECT * FROM commitments WHERE deliverable = 'order spare patch cables'")
+    (c,) = [r for r in rows(TEST_COMMITMENTS) if r["deliverable"] == "order spare patch cables"]
     assert c["state"] == "open" and c["notion_page_id"] == created[0].page_id
 
 
@@ -273,14 +287,14 @@ def test_the_same_source_twice_is_a_duplicate_and_costs_nothing(world):
 def test_a_source_with_nothing_actionable_ends_as_no_events(world):
     graph, _ = world["make_graph"]([])
     run = start(graph)
-    assert run["status"] == "no_events" and rows("SELECT 1 FROM review_items") == []
+    assert run["status"] == "no_events" and rows("SELECT 1 FROM review_items WHERE source_id = %s", run["source_id"]) == []
 
 
 def test_nothing_to_review_goes_straight_to_completed(world):
     graph, _ = world["make_graph"]([MEETING_EVENTS[3], MEETING_EVENTS[4]])  # progress and blocker only
     run = start(graph)
     assert run["status"] == "completed" and run["undecided_item_ids"] == []
-    rel = {r["relation"] for r in rows("SELECT relation FROM evidence")}
+    rel = {r["relation"] for r in rows(f"SELECT relation FROM evidence WHERE commitment_id IN (SELECT id FROM ({TEST_COMMITMENTS}) t)")}
     assert rel == {"progress", "blocker"}
 
 

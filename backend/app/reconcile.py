@@ -84,6 +84,11 @@ Rules:
 LLMCall = Callable[[str, str, str, dict], dict]
 
 
+def _q(ev: dict) -> str:
+    """An excerpt for use inside a sentence: without its own end punctuation, so quoting it never doubles up."""
+    return ev["excerpt"].rstrip(" .!?")
+
+
 def _who(ev: dict) -> str:
     return ev["owner_name"] or ev["speaker_name"] or f"speaker {ev['speaker_label']}"
 
@@ -269,7 +274,7 @@ def _apply_pass2(conn, src: dict, ev: dict, dec: Pass2Decision | None, cands: li
 
     if relation == "unrelated" or confidence == "low":
         _review(conn, "uncertain_extraction",
-                f'{who} said "{ev["excerpt"]}" ({ev["type"].replace("_", " ")}), but no related task could be identified with confidence. {note}',
+                f'{who} said "{_q(ev)}" ({ev["type"].replace("_", " ")}), but no related task could be identified with confidence. {note}',
                 ev, None, {"type": "none"})
         stats["review_items"] += 1
         return
@@ -289,7 +294,7 @@ def _apply_pass2(conn, src: dict, ev: dict, dec: Pass2Decision | None, cands: li
         return  # evidence only: it changes nothing authoritative, so no human is asked
 
     if relation == "contradiction":
-        _review(conn, "conflict", f'{who} said "{ev["excerpt"]}", which conflicts with "{title}". {note}',
+        _review(conn, "conflict", f'{who} said "{_q(ev)}", which conflicts with "{title}". {note}',
                 ev, commitment["id"], {"type": "none"})
         stats["review_items"] += 1
         return
@@ -305,8 +310,8 @@ def _apply_pass2(conn, src: dict, ev: dict, dec: Pass2Decision | None, cands: li
     if not already:
         unconfirmed = " This commitment itself is not confirmed yet." if commitment["state"] == "proposed" else ""
         _review(conn, "potential_completion",
-                (f'{who} said: "{ev["excerpt"]}". That is a claim, not verified evidence.' if strength == "claimed"
-                 else f'{who} wrote: "{ev["excerpt"]}", and the email carries an attachment, which is independent evidence.')
+                (f'{who} said: "{_q(ev)}". That is a claim, not verified evidence.' if strength == "claimed"
+                 else f'{who} wrote: "{_q(ev)}", and the email carries an attachment, which is independent evidence.')
                 + f' Possible completion of "{title}" ({note}).{unconfirmed}',
                 ev, commitment["id"],
                 {"type": "resolve_task", "commitment_id": commitment["id"], "notion_page_id": commitment["notion_page_id"],
@@ -395,7 +400,7 @@ def reconcile_source(source_id: int, call: LLMCall = llm.structured_call, matche
         for e in events:
             if e["type"] == "suggestion":
                 _review(conn, "suggestion",
-                        f'{_who(e)} suggested: "{e["excerpt"]}". A suggestion is not an agreed commitment, so no task was created.',
+                        f'{_who(e)} suggested: "{_q(e)}". A suggestion is not an agreed commitment, so no task was created.',
                         e, None, {"type": "none"})
                 stats["review_items"] += 1
         conn.execute("UPDATE events SET reconciled_at = now() WHERE id = ANY(%s)", ([e["id"] for e in events],))
