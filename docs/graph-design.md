@@ -7,32 +7,33 @@ Every design choice below has a recorded rationale. Run `python scripts/explain_
 ## Flow
 
 ```mermaid
+%%{init: {"themeVariables": {"fontSize": "12px"}, "flowchart": {"nodeSpacing": 18, "rankSpacing": 22, "padding": 6, "diagramPadding": 4}}}%%
 flowchart TD
-    input(["Audio, transcript or follow-up text"]) --> ingest["Ingest<br/>hash, dedupe, meeting date"]
+    input(["Audio / transcript / text"]) --> ingest["Ingest<br/>hash, dedupe, date"]
 
-    ingest -->|duplicate| end1(["END: already processed"])
-    ingest -->|new audio| transcribe["Transcribe<br/>Muse Voice Transcribe"]
-    ingest -->|new text| context
-    transcribe --> context["Retrieve context<br/>refresh Notion, load people, projects, tasks"]
+    ingest -->|duplicate| end1(["END: duplicate"])
+    ingest -->|audio| transcribe["Transcribe"]
+    ingest -->|text| context
+    transcribe --> context["Retrieve context<br/>refresh Notion"]
 
-    context --> extract["Extract<br/>Muse Spark call 1"]
-    extract -->|no events| end2(["END: nothing found"])
-    extract -->|events found| match["Match<br/>project first, then task"]
+    context --> extract["Extract<br/>Spark 1"]
+    extract -->|no events| end2(["END: none"])
+    extract -->|events| match["Match<br/>project, then task"]
 
-    match --> reconcile["Reconcile<br/>Muse Spark call 2: pass 1, then pass 2<br/>saves review items"]
-    reconcile -->|nothing needs review| persist
-    reconcile -->|items need review| review["Human review<br/>interrupt: wait for decisions"]
+    match --> reconcile["Reconcile<br/>Spark 2: pass 1, pass 2"]
+    reconcile -->|nothing to review| persist
+    reconcile -->|items to review| review["Human review<br/>interrupt"]
 
     review -->|all rejected| persist
-    review -->|at least one approved| validate["Validate<br/>recheck against current Notion state"]
+    review -->|some approved| validate["Validate<br/>recheck state"]
 
-    validate -->|still valid| execute["Execute<br/>idempotent Notion write"]
-    validate -->|state changed: new review item| review
+    validate -->|valid| execute["Execute<br/>Notion write"]
+    validate -->|state changed| review
 
-    execute --> persist["Persist<br/>state changes, evidence, audit"]
+    execute --> persist["Persist"]
     persist --> end3(["END"])
 
-    transcribe & context & extract & reconcile & execute -.->|error after one retry| fail(["END: error recorded"])
+    transcribe & context & extract & reconcile & execute -.->|error after retry| fail(["END: error"])
 ```
 
 How to read it:
