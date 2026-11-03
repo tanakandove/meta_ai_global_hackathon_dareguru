@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { clock, shortDate } from "../format";
-import type { DecisionAction, Edits, ReviewItem } from "../types";
+import type { DecisionAction, Edits, Project, ReviewItem } from "../types";
 
 const KIND: Record<ReviewItem["kind"], { label: string; tone: string }> = {
   task_match: { label: "Task match", tone: "accent" },
@@ -25,8 +25,8 @@ function headline(item: ReviewItem): string {
   }
 }
 
-export function ReviewCard({ item, people, readOnly, onDecide }: {
-  item: ReviewItem; people: string[]; readOnly: boolean;
+export function ReviewCard({ item, people, projects, readOnly, onDecide }: {
+  item: ReviewItem; people: string[]; projects: Project[]; readOnly: boolean;
   onDecide: (id: number, action: DecisionAction, edits?: Edits) => Promise<void>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -34,8 +34,14 @@ export function ReviewCard({ item, people, readOnly, onDecide }: {
   const [due, setDue] = useState(item.decision?.edits.due ?? item.event?.deadline_date ?? "");
   const [title, setTitle] = useState(item.decision?.edits.title ?? item.action.task?.title ?? "");
   const [page, setPage] = useState(item.decision?.edits.notion_page_id ?? item.task?.page_id ?? "");
+  const [proj, setProj] = useState<number | "">(item.decision?.edits.project_id ?? item.action.task?.project_id ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // A new task has to live in a project. Until one is chosen, approving it would only be refused.
+  const projectId = item.decision?.edits.project_id ?? item.action.task?.project_id ?? null;
+  const projectName = projects.find((p) => p.id === projectId)?.name;
+  const needsProject = item.action.type === "create_task" && projectId == null;
 
   const effect = item.action.type !== "none";
   const decided = item.decision?.action;
@@ -59,6 +65,7 @@ export function ReviewCard({ item, people, readOnly, onDecide }: {
     if (owner && owner !== (item.action.task?.owner ?? item.commitment?.owner ?? "")) edits.owner = owner;
     if (due && due !== (item.event?.deadline_date ?? "")) edits.due = due;
     if (item.action.type === "link_task" && page && page !== item.task?.page_id) edits.notion_page_id = page;
+    if (item.action.type === "create_task" && proj !== "" && proj !== (item.action.task?.project_id ?? null)) edits.project_id = proj;
     if (Object.keys(edits).length === 0) { setError("Change something first, or choose Approve."); return; }
     decide("edit", edits);
   };
@@ -97,6 +104,7 @@ export function ReviewCard({ item, people, readOnly, onDecide }: {
           </>)}
           {item.action.type === "create_task" && (<>
             <div><span className="k">New task</span><span><strong>{item.action.task?.title}</strong></span></div>
+            <div><span className="k">Project</span><span>{projectName ?? <em style={{ color: "var(--amber)" }}>None yet. Use Edit to choose where this task belongs.</em>}</span></div>
             <div><span className="k">Owner</span><span>{item.action.task?.owner ?? <em className="muted">Unknown</em>}</span></div>
             <div><span className="k">Due</span><span>{shortDate(item.action.task?.due || null)}</span></div>
             <div><span className="k">Notion</span><span className="muted">A new task is created in your Tasks database.</span></div>
@@ -116,7 +124,8 @@ export function ReviewCard({ item, people, readOnly, onDecide }: {
       )}
 
       <div className="decide" role="group" aria-label="Your decision">
-        <button className="pick approve" aria-pressed={decided === "approve"} disabled={locked || busy} onClick={() => decide("approve")}>
+        <button className="pick approve" aria-pressed={decided === "approve"} disabled={locked || busy || needsProject} onClick={() => decide("approve")}
+          title={needsProject ? "Choose a project first (Edit)" : undefined}>
           {effect ? "Approve" : "Acknowledge"}
         </button>
         {effect && (
@@ -125,13 +134,23 @@ export function ReviewCard({ item, people, readOnly, onDecide }: {
         <button className="pick reject" aria-pressed={decided === "reject"} disabled={locked || busy} onClick={() => decide("reject")}>
           {effect ? "Reject" : "Dismiss"}
         </button>
-        {decided === "edit" && !editing && <span className="muted" style={{ fontSize: 13 }}>Edited: {Object.entries(item.decision!.edits).map(([k, v]) => `${k} → ${k === "due" ? shortDate(v) : v}`).join(", ")}</span>}
+        {decided === "edit" && !editing && <span className="muted" style={{ fontSize: 13 }}>Edited: {Object.entries(item.decision!.edits).map(([k, v]) => `${k === "project_id" ? "project" : k} → ${k === "due" ? shortDate(String(v)) : k === "project_id" ? projects.find((p) => p.id === v)?.name ?? v : v}`).join(", ")}</span>}
+        {needsProject && !locked && <span style={{ fontSize: 13, color: "var(--amber)" }}>Choose a project in Edit first. A task needs somewhere to live.</span>}
       </div>
 
       {editing && !locked && (
         <div className="editor">
           {item.action.type === "create_task" && (
             <div><label htmlFor={`t${item.id}`}>Task title</label><input id={`t${item.id}`} value={title} onChange={(ev) => setTitle(ev.target.value)} /></div>
+          )}
+          {item.action.type === "create_task" && (
+            <div>
+              <label htmlFor={`j${item.id}`}>Project</label>
+              <select id={`j${item.id}`} value={proj} onChange={(ev) => setProj(ev.target.value === "" ? "" : Number(ev.target.value))}>
+                <option value="">Choose a project…</option>
+                {projects.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            </div>
           )}
           {item.action.type === "link_task" && item.alternatives.length > 0 && (
             <div>

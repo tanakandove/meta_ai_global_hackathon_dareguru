@@ -123,6 +123,18 @@ DECISIONS = [
              "Before creating a task, the project's open tasks are checked; a title that is 85% similar blocks the creation and opens a review item.",
              "Duplicate tasks are the failure the product exists to prevent.",
              "Trusting the model's judgment that no task matched."),
+    Decision("D27", "A new task cannot be approved without a project",
+             "The Approve button stays disabled on a create-task card until a project is chosen in Edit, and validation still refuses it if one slips through.",
+             "A task with no project would land in Notion with nowhere to belong. Saying so up front is kinder than a refusal after the fact, and the backend check stays as the safety net.",
+             "Letting the reviewer approve and finding out at Apply."),
+    Decision("D28", "Re-run discards unreviewed work, and only before anything is applied",
+             "Re-run throws away a run's unreviewed proposals and analyses the stored source again with current Notion data. It is refused once any of the run's decisions has been applied. The stored transcript is reused, so audio is never transcribed twice.",
+             "A source is rejected as a duplicate by hash, so without this there was no way to reprocess a meeting after adding the missing project in Notion. Refusing after apply keeps a re-run from duplicating or contradicting changes already made.",
+             "Re-processing at any time, or making the reviewer delete data by hand."),
+    Decision("D29", "Runs a stopped server left behind become retryable",
+             "On startup, any run still marked running is marked failed with a message, so the UI offers Retry, which resumes from the last checkpoint.",
+             "Runs execute on background threads. If the server stops mid-run, nothing is left to finish it, and the run would otherwise read as running forever.",
+             "Leaving them running, or deleting them."),
 ]
 
 

@@ -1,4 +1,6 @@
-export type RunStatus = "running" | "waiting_for_review" | "completed" | "duplicate" | "no_events" | "failed";
+export type RunStatus = "running" | "waiting_for_review" | "completed" | "duplicate" | "no_events" | "failed" | "superseded";
+
+export interface Project { id: number; name: string }
 
 export interface Run {
   thread_id: string;
@@ -20,7 +22,7 @@ export interface SourceSummary {
   filename: string | null; meeting_project: string | null; speakers: Speaker[];
 }
 
-export type Edits = { owner?: string; due?: string; title?: string; notion_page_id?: string };
+export type Edits = { owner?: string; due?: string; title?: string; notion_page_id?: string; project_id?: number };
 export type DecisionAction = "approve" | "reject" | "edit";
 
 export interface TaskRef { page_id: string; title: string; owner: string | null; due: string | null; status: string; url: string | null }

@@ -1,4 +1,4 @@
-import type { CommitmentDetail, DecisionAction, Edits, FollowUp, Run, RunDetail } from "./types";
+import type { CommitmentDetail, DecisionAction, Edits, FollowUp, Project, Run, RunDetail } from "./types";
 
 export class ApiError extends Error {}
 
@@ -33,6 +33,8 @@ export const api = {
   decide: (itemId: number, action: DecisionAction, edits: Edits = {}) =>
     request<{ ok: boolean }>(`/api/review/${itemId}/decision`, json({ action, edits })),
   apply: (id: string) => request<{ thread_id: string }>(`/api/runs/${id}/apply`, { method: "POST" }),
+  rerun: (id: string) => request<{ thread_id: string }>(`/api/runs/${id}/rerun`, { method: "POST" }),
+  projects: () => request<Project[]>("/api/projects"),
   retry: (id: string) => request<{ thread_id: string }>(`/api/runs/${id}/retry`, { method: "POST" }),
   followups: () => request<{ as_of: string; commitments: FollowUp[] }>("/api/followups"),
   commitment: (id: number) => request<CommitmentDetail>(`/api/commitments/${id}`),

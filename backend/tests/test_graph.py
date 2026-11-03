@@ -100,6 +100,8 @@ def world(pool):
                        project_id, notion_last_edited) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (page, title, owner, due, status, P + "MidTown", P + "proj-mid", mid, t.last_edited))
 
+    holder = {"project": P + "MidTown"}  # the project the fake model says a meeting is about
+
     def make_graph(events=MEETING_EVENTS):
         model = fake_model([])
         calls = {"n": 0}
@@ -108,14 +110,14 @@ def world(pool):
             calls["n"] += 1
             if name == "Extraction":
                 names = ["Dana", "Sam", "Priya", "Marcus"]
-                return {"meeting_project": P + "MidTown", "events": events,
+                return {"meeting_project": holder["project"], "events": events,
                         "speakers": [{"label": n, "name": n, "confidence": "high", "basis": "written"} for n in names]}
             return model(system, user, name, schema)
 
         deps = Deps(llm_call=llm_call, gateway=gw, refresh_fn=lambda: None)
         return build_graph(PostgresSaver(pool), deps), calls
 
-    yield {"gw": gw, "make_graph": make_graph, "mid": mid}
+    yield {"gw": gw, "make_graph": make_graph, "mid": mid, "holder": holder}
 
     purge(pool)
 
@@ -305,3 +307,73 @@ def test_progress_events_are_streamed_node_by_node(world):
     nodes = [e["node"] for e in seen if e["event"] == "node"]
     assert nodes == ["ingest", "retrieve_context", "extract", "match", "reconcile"]
     assert seen[-2]["event"] == "waiting_for_review" and seen[-1] == {"event": "stopped", "status": "waiting_for_review"}
+
+
+# ---- a project for a new task, re-run, recovery ---------------------------------------------------
+
+NEW_TASK = [ev("commitment", 0, "Priya", "order spare patch cables", "I'll send the revised hardware specifications to Facilities by Friday")]
+
+
+def test_a_new_task_needs_a_project_and_the_reviewer_can_choose_one(world):
+    world["holder"]["project"] = P + "no-such-project"  # the meeting is about something not in Notion
+    graph, _ = world["make_graph"](NEW_TASK)
+    run = start(graph)
+    (item,) = rows("SELECT * FROM review_items WHERE source_id = %s", run["source_id"])
+    assert item["proposed_action"]["type"] == "create_task" and item["proposed_action"]["task"]["project_id"] is None
+
+    runner.submit_decision(item["id"], "approve")
+    assert runner.apply_run(run["thread_id"], graph)["status"] == "waiting_for_review"  # refused, not guessed
+    (retry_id,) = actions.undecided_ids(run["source_id"])
+    assert "project" in rows("SELECT reason FROM review_items WHERE id = %s", retry_id)[0]["reason"]
+    assert "create_task" not in world["gw"].calls
+
+    with pytest.raises(actions.DecisionError, match="does not exist"):
+        runner.submit_decision(retry_id, "edit", {"project_id": 999999999})
+    runner.submit_decision(retry_id, "edit", {"project_id": world["mid"]})
+    assert runner.apply_run(run["thread_id"], graph)["status"] == "completed"
+    (page,) = [p for p in world["gw"].pages.values() if p.title == "order spare patch cables"]
+    assert page.project_page_id == P + "proj-mid"
+    (c,) = [r for r in rows(TEST_COMMITMENTS) if r["deliverable"] == "order spare patch cables"]
+    assert c["project_id"] == world["mid"] and c["state"] == "open"
+
+
+def test_rerun_analyses_the_same_source_again_with_the_current_notion_data(world):
+    world["holder"]["project"] = P + "no-such-project"
+    graph, calls = world["make_graph"](NEW_TASK)
+    first = start(graph)
+    (item,) = rows("SELECT * FROM review_items WHERE source_id = %s", first["source_id"])
+    runner.submit_decision(item["id"], "reject")  # a decision that the re-run will discard
+
+    world["holder"]["project"] = P + "MidTown"  # "the project was added in Notion"
+    new_id, events = runner.stream_rerun(first["thread_id"], graph)
+    list(events)
+
+    assert runner.get_run(first["thread_id"])["status"] == "superseded"
+    again = runner.get_run(new_id)
+    assert again["status"] == "waiting_for_review" and again["source_id"] == first["source_id"]
+    (fresh,) = rows("SELECT * FROM review_items WHERE source_id = %s", first["source_id"])
+    assert fresh["proposed_action"]["task"]["project_id"] == world["mid"]
+    assert again["undecided_item_ids"] == [fresh["id"]]                       # the old decision is gone
+    assert len([r for r in rows(TEST_COMMITMENTS) if r["deliverable"] == "order spare patch cables"]) == 1  # no duplicate
+    assert len(rows("SELECT 1 FROM events WHERE source_id = %s", first["source_id"])) == 1
+
+
+def test_a_run_that_was_applied_cannot_be_re_run(world):
+    graph, _ = world["make_graph"]()
+    run = start(graph)
+    approve_all(run)
+    runner.apply_run(run["thread_id"], graph)
+    with pytest.raises(actions.DecisionError, match="waiting for review"):
+        runner.stream_rerun(run["thread_id"], graph)
+
+
+def test_runs_left_running_by_a_stopped_server_become_retryable():
+    with db.connect() as conn:
+        conn.execute("INSERT INTO runs (thread_id, kind, status) VALUES ('gtest-stale-1', 'text', 'running')")
+    try:
+        assert runner.recover_stale_runs("gtest-stale") == 1
+        run = runner.get_run("gtest-stale-1")
+        assert run["status"] == "failed" and "restarted" in run["message"]
+    finally:
+        with db.connect() as conn:
+            conn.execute("DELETE FROM runs WHERE thread_id = 'gtest-stale-1'")

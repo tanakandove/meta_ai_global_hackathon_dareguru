@@ -108,3 +108,15 @@ def test_followup_flags_group_work_for_the_center(client):
     specs = by["Send revised hardware specifications for facilities"]
     assert specs["is_upcoming"] and not specs["is_overdue"]                                 # due Nov 6
     assert not by["Finalize cabling and network-drop plan"]["is_overdue"]                   # resolved work is never overdue
+
+
+def test_rerun_over_http_is_refused_once_a_run_is_applied(client):
+    tid = new_run(client).json()["thread_id"]
+    run = wait_for(client, tid, "waiting_for_review")
+    for item in run["items"]:
+        client.post(f"/api/review/{item['id']}/decision", json={"action": "approve"})
+    client.post(f"/api/runs/{tid}/apply")
+    wait_for(client, tid, "completed")
+    refused = client.post(f"/api/runs/{tid}/rerun")
+    assert refused.status_code == 409 and "waiting for review" in refused.json()["detail"]
+    assert any(p["name"] == P + "MidTown" for p in client.get("/api/projects").json())

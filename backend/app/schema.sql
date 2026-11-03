@@ -199,3 +199,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS decisions_one_per_item ON decisions (review_it
 -- validated_at: the item was checked this round; after a loop back, only unvalidated items are checked again.
 ALTER TABLE review_items ADD COLUMN IF NOT EXISTS locked_at TIMESTAMPTZ;
 ALTER TABLE review_items ADD COLUMN IF NOT EXISTS validated_at TIMESTAMPTZ;
+
+-- A run that was replaced by a re-run of the same source (after, say, a project was added in Notion).
+ALTER TABLE runs DROP CONSTRAINT IF EXISTS runs_status_check;
+ALTER TABLE runs ADD CONSTRAINT runs_status_check CHECK (status IN (
+    'running', 'waiting_for_review', 'completed', 'duplicate', 'no_events', 'failed', 'superseded'));
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS rerun_of TEXT;

@@ -31,6 +31,7 @@ class State(TypedDict, total=False):
     occurred_at: str   # ISO 8601 with offset
     tz: str
     source_id: int
+    reuse_source: int  # set on a re-run: analyse this stored source instead of ingesting one
     duplicate: bool
     event_count: int
     matches: dict
@@ -83,6 +84,9 @@ def build_graph(checkpointer, deps: Deps | None = None):
     d = deps or Deps()
 
     def n_ingest(state: State) -> dict:
+        if state.get("reuse_source"):  # a re-run analyses a source that is already stored
+            set_run(state["thread_id"], "running", "ingest", "Re-running on the stored source.", state["reuse_source"])
+            return {"source_id": state["reuse_source"], "duplicate": False}
         when = datetime.fromisoformat(state["occurred_at"])
         if state["kind"] == "audio":
             sid, dup = ingest.register_audio(Path(state["audio_path"]), occurred_at=when, tz=state["tz"])
@@ -95,7 +99,10 @@ def build_graph(checkpointer, deps: Deps | None = None):
         return {"source_id": sid, "duplicate": dup}
 
     def n_transcribe(state: State) -> dict:
-        ingest.attach_turns(state["source_id"], d.transcribe_fn(Path(state["audio_path"])))
+        with db.connect() as conn:
+            done = conn.execute("SELECT turns IS NOT NULL AS done FROM sources WHERE id = %s", (state["source_id"],)).fetchone()["done"]
+        if not done:  # a re-run already has its transcript, so it never pays for transcription twice
+            ingest.attach_turns(state["source_id"], d.transcribe_fn(Path(state["audio_path"])))
         return {}
 
     def n_context(state: State) -> dict:

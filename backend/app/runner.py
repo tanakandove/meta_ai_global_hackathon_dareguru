@@ -134,3 +134,40 @@ def retry_run(thread_id: str, graph=None) -> dict:
     for _ in stream_retry(thread_id, graph):
         pass
     return get_run(thread_id)
+
+
+def stream_rerun(thread_id: str, graph=None) -> tuple[str, Iterator[dict]]:
+    """Analyse a run's source again against the current Notion data. Returns (new_thread_id, progress events).
+
+    Only a run that is still waiting for review can be re-run, and only while none of its decisions have been
+    applied. Its unreviewed proposals are discarded, and the stored source (and transcript) is reused.
+    """
+    run = get_run(thread_id)
+    if not run or run["status"] != "waiting_for_review":
+        raise actions.DecisionError("Only a run that is waiting for review can be re-run.")
+    with db.connect() as conn:
+        applied = conn.execute("SELECT 1 FROM review_items WHERE source_id = %s AND status = 'resolved'", (run["source_id"],)).fetchone()
+        if applied:
+            raise actions.DecisionError("Some of this run's decisions were already applied, so it can't be re-run.")
+        src = conn.execute("SELECT occurred_at, timezone FROM sources WHERE id = %s", (run["source_id"],)).fetchone()
+        actions.discard_for_rerun(conn, run["source_id"])
+        new_id = "run-" + uuid.uuid4().hex[:12]
+        conn.execute("UPDATE runs SET status = 'superseded', message = 'Replaced by a re-run.', updated_at = now() WHERE thread_id = %s", (thread_id,))
+        conn.execute("INSERT INTO runs (thread_id, source_id, kind, message, rerun_of) VALUES (%s, %s, %s, 'Queued', %s)",
+                     (new_id, run["source_id"], run["kind"], thread_id))
+    payload = {"thread_id": new_id, "kind": run["kind"], "occurred_at": src["occurred_at"].isoformat(), "tz": src["timezone"],
+               "reuse_source": run["source_id"]}
+    return new_id, _drive(graph or get_graph(), new_id, payload)
+
+
+def recover_stale_runs(thread_prefix: str = "") -> int:
+    """Mark runs left 'running' by a server that stopped as failed, so the UI offers Retry.
+
+    Runs execute on background threads, so any run still 'running' when the server starts is one whose
+    thread died. Retry resumes it from its last checkpoint. thread_prefix limits which runs are touched.
+    """
+    with db.connect() as conn:
+        return conn.execute(
+            """UPDATE runs SET status = 'failed', updated_at = now(),
+                      message = 'The server restarted while this run was in progress. Retry to continue.'
+               WHERE status = 'running' AND thread_id LIKE %s RETURNING thread_id""", (thread_prefix + "%",)).rowcount

@@ -13,7 +13,7 @@ from psycopg.types.json import Jsonb
 from app import db, notion_api, notion_sync
 from app.match import DONE_STATUSES, score_task
 
-EDITABLE = {"owner", "due", "title", "notion_page_id"}
+EDITABLE = {"owner", "due", "title", "notion_page_id", "project_id"}
 DUPLICATE_TASK_SIMILARITY = 0.85
 LIVE_STATES = ("proposed", "open", "resolution_proposed")
 
@@ -39,6 +39,9 @@ def record_decision(item_id: int, action: str, edits: dict | None = None, decide
         except ValueError as e:
             raise DecisionError("due must be a date like 2026-11-06.") from e
     with db.connect() as conn:
+        if edits.get("project_id") is not None and not conn.execute(
+                "SELECT 1 FROM projects WHERE id = %s", (edits["project_id"],)).fetchone():
+            raise DecisionError("That project does not exist.")
         item = conn.execute("SELECT status, locked_at FROM review_items WHERE id = %s", (item_id,)).fetchone()
         if not item:
             raise DecisionError(f"Review item {item_id} does not exist.")
@@ -91,7 +94,7 @@ def effective_action(item: dict) -> dict:
     if action["type"] == "link_task" and edits.get("notion_page_id"):
         action["notion_page_id"] = edits["notion_page_id"]
     if action["type"] == "create_task":
-        for key in ("title", "owner", "due"):
+        for key in ("title", "owner", "due", "project_id"):
             if key in edits:
                 action["task"][key] = edits[key]
     action["edits"] = edits
@@ -288,6 +291,8 @@ def apply_item(conn, item: dict) -> None:
                     (item["event_id"], page))
                 _move(conn, cid, ("proposed",), "open", detail)
             elif kind == "create_task":
+                if action["task"].get("project_id"):
+                    conn.execute("UPDATE commitments SET project_id = %s WHERE id = %s", (action["task"]["project_id"], cid))
                 _move(conn, cid, ("proposed",), "open", detail)
             else:
                 _move(conn, cid, ("resolution_proposed",), "resolved", detail)
@@ -299,3 +304,26 @@ def apply_item(conn, item: dict) -> None:
 
     conn.execute("UPDATE review_items SET status = 'resolved', locked_at = COALESCE(locked_at, now()) WHERE id = %s", (item["id"],))
     _audit(conn, "review_item", item["id"], "open", "resolved", detail)
+
+
+# ---- re-run -------------------------------------------------------------------------------------
+
+def discard_for_rerun(conn, source_id: int) -> None:
+    """Throw away everything a source's run proposed, so the source can be analysed again.
+
+    Only valid while nothing from the run has been applied; the caller checks that. Tasks that evidence
+    started tracking stay tracked, but a completion this run proposed is taken back.
+    """
+    conn.execute(
+        """UPDATE commitments SET state = 'open', updated_at = now()
+           WHERE state = 'resolution_proposed' AND id IN (
+               SELECT commitment_id FROM review_items
+               WHERE source_id = %s AND kind = 'potential_completion' AND commitment_id IS NOT NULL)""", (source_id,))
+    conn.execute("DELETE FROM decisions WHERE review_item_id IN (SELECT id FROM review_items WHERE source_id = %s)", (source_id,))
+    conn.execute("DELETE FROM review_items WHERE source_id = %s", (source_id,))
+    proposed = [r["id"] for r in conn.execute(
+        """SELECT c.id FROM commitments c JOIN events e ON e.id = c.origin_event_id
+           WHERE c.state = 'proposed' AND e.source_id = %s""", (source_id,))]
+    conn.execute("DELETE FROM audit_log WHERE entity_type = 'commitment' AND entity_id = ANY(%s)", (proposed,))
+    conn.execute("DELETE FROM commitments WHERE id = ANY(%s)", (proposed,))
+    conn.execute("DELETE FROM events WHERE source_id = %s", (source_id,))  # evidence and matches go with them

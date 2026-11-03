@@ -25,6 +25,11 @@ def people() -> list[str]:
         return [r["name"] for r in conn.execute("SELECT name FROM people ORDER BY name")]
 
 
+def projects() -> list[dict]:
+    with db.connect() as conn:
+        return [{"id": r["id"], "name": r["name"]} for r in conn.execute("SELECT id, name FROM projects ORDER BY name")]
+
+
 # ---- review inbox -------------------------------------------------------------------------------
 
 def _source_summary(src: dict) -> dict:

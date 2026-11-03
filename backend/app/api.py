@@ -5,6 +5,7 @@ follows progress by polling GET /api/runs/{id}, which reads the `runs` table.
 """
 import shutil
 import threading
+from contextlib import asynccontextmanager
 import uuid
 from datetime import date, datetime, time
 from pathlib import Path
@@ -24,7 +25,13 @@ UPLOAD_DIR = ROOT / "backend" / "data" / "uploads"
 FRONTEND_DIST = ROOT / "frontend" / "dist"
 KINDS = {"audio", "transcript", "email", "text"}
 
-app = FastAPI(title="ProjectPulse")
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    runner.recover_stale_runs()  # runs a stopped server left mid-flight become retryable
+    yield
+
+
+app = FastAPI(title="ProjectPulse", lifespan=lifespan)
 app.state.graph = None  # tests inject a graph built with fakes
 
 
@@ -126,6 +133,18 @@ def retry(thread_id: str) -> dict:
     set_run(thread_id, "running", None, "Retrying.")
     _in_background(events)
     return {"thread_id": thread_id}
+
+
+@app.post("/api/runs/{thread_id}/rerun", status_code=202)
+def rerun(thread_id: str) -> dict:
+    new_id, events = runner.stream_rerun(thread_id, _graph())  # 409 unless it is waiting and nothing was applied
+    _in_background(events)
+    return {"thread_id": new_id}
+
+
+@app.get("/api/projects")
+def projects() -> list[dict]:
+    return queries.projects()
 
 
 @app.get("/api/inbox")

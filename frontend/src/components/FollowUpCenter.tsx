@@ -12,7 +12,7 @@ const FILTERS: { id: Filter; label: string; tone: string; test: (c: FollowUp) =>
   { id: "overdue", label: "Overdue", tone: "red", test: (c) => c.is_overdue && c.state !== "proposed" },
   { id: "upcoming", label: "Due this week", tone: "amber", test: (c) => c.is_upcoming && c.state !== "proposed" },
   { id: "blocked", label: "Blocked", tone: "red", test: (c) => c.is_blocked },
-  { id: "requests", label: "Requests for action", tone: "", test: (c) => c.is_request && c.state === "open" },
+  { id: "requests", label: "Waiting on others", tone: "", test: (c) => c.is_request && c.state === "open" },
   { id: "resolved", label: "Recently resolved", tone: "green", test: (c) => c.state === "resolved" },
 ];
 
