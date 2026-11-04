@@ -1,17 +1,18 @@
 /** Synthetic examples for trying the app and for the demo. Not real company data. */
 
-export const SAMPLE_FOLLOW_UP_EMAIL = `From: Dana Whitfield <dana@midtown-install.example>
-Subject: Revised hardware specifications sent to Facilities
-Attachments: revised-hardware-specs-v3.pdf
+export const SAMPLE_FOLLOW_UP_EMAIL = `From: John <john@environmental-dashboard.example>
+Subject: Digital display delivered to University Circle
+Attachments: delivery-receipt.pdf
 
 Hi team,
 
-Following up on the dashboard install: I've sent the revised hardware specifications to Facilities. The final document is attached, and Facilities have confirmed they have everything they need.
+I picked up the digital display and delivered it to the University Circle site today. The delivery receipt is attached.
 
 Thanks,
-Dana`;
+John`;
 
-export const SAMPLE_TRANSCRIPT = `Dana: Quick sync on the MidTown dashboard install. I'll send the revised hardware specifications to Facilities by Friday.
-Sam: We could consider contacting the vendor about the rack mounts.
-Priya: On the cabling plan, I sent it to Facilities yesterday. They have everything they need.
-Marcus: I've started measuring the display mounting locations, but I'm blocked on access to the second floor.`;
+export const SAMPLE_TRANSCRIPT = `John: Thanks for joining. Before Alex installs the display tomorrow, I want to make sure all the preparation work is complete. Adam, can you give us an update on the NUC?
+Adam: Yes, John. I've finished configuring the NUC. I've connected it to the network, tested the dashboard, and confirmed that it boots and launches correctly. It's ready for installation.
+John: Great. Matthew, what about the mounting points?
+Matthew: I've drilled the mounting holes at the agreed locations. I also checked the spacing against the display bracket. The wall is ready for the screen.
+John: Perfect. So the display has been delivered, the NUC is configured, and the mounting points are ready. Alex is still scheduled to install the display tomorrow, November 14.`;

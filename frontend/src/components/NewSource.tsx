@@ -8,7 +8,7 @@ type Kind = "audio" | "transcript" | "email" | "text";
 
 const KINDS: { id: Kind; label: string; hint: string }[] = [
   { id: "audio", label: "Meeting recording", hint: "A WAV file: mono, 16-bit, 16 or 24 kHz, up to 10 minutes." },
-  { id: "transcript", label: "Meeting transcript", hint: "Paste a transcript. Lines like “Dana: …” keep who said what." },
+  { id: "transcript", label: "Meeting transcript", hint: "Paste a transcript. Lines like “John: …” keep who said what." },
   { id: "email", label: "Email", hint: "Paste the email with its From, Subject and Attachments lines." },
   { id: "text", label: "Text update", hint: "Paste a message from chat or anywhere else." },
 ];

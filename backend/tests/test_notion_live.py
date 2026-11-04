@@ -11,7 +11,7 @@ import pytest
 
 from app import db, notion_api, runner
 from app.notion_api import DONE_STATUS, NotionGateway
-from tests.conftest import FIXTURES
+from tests.conftest import DEMO
 
 pytestmark = pytest.mark.live
 
@@ -20,10 +20,10 @@ def test_gateway_create_find_and_mark_done_is_idempotent():
     gw = NotionGateway()
     marker = "pp-test" + uuid.uuid4().hex[:6]
     with db.connect() as conn:
-        project = conn.execute("SELECT name, notion_page_id FROM projects WHERE name = 'MidTown Community Dashboard'").fetchone()
+        project = conn.execute("SELECT name, notion_page_id FROM projects WHERE name = 'University Circle Dashboard'").fetchone()
     page_id = None
     try:
-        page_id = gw.create_task(marker=marker, title="TEMP: ProjectPulse gateway test", owner="Dana", due="2026-11-06",
+        page_id = gw.create_task(marker=marker, title="TEMP: ProjectPulse gateway test", owner="Adam", due="2026-11-14",
                                  project_name=project["name"], project_page_id=project["notion_page_id"], evidence="Created by a test")
         task = gw.get_task(page_id)
         assert task.title == "TEMP: ProjectPulse gateway test" and task.status == "Not-started"
@@ -43,14 +43,14 @@ def test_gateway_create_find_and_mark_done_is_idempotent():
 
 
 def test_full_run_with_real_audio_pauses_for_review_without_writing():
-    when = datetime(2026, 10, 31, 10, 0, tzinfo=ZoneInfo("America/New_York"))
+    when = datetime(2026, 11, 13, 10, 0, tzinfo=ZoneInfo("America/New_York"))
     before = {t.page_id: (t.status, t.evidence) for t in notion_api.fetch_tasks()}
-    run = runner.start_run("audio", audio_path=FIXTURES / "meeting.wav", occurred_at=when, tz="America/New_York")
+    run = runner.start_run("audio", audio_path=DEMO / "meeting.wav", occurred_at=when, tz="America/New_York")
     try:
         assert run["status"] == "waiting_for_review" and run["current_node"] == "human_review"
         with db.connect() as conn:
             kinds = [r["kind"] for r in conn.execute("SELECT kind FROM review_items WHERE source_id = %s", (run["source_id"],))]
-        assert "suggestion" in kinds and "potential_completion" in kinds
+        assert "potential_completion" in kinds
         assert before == {t.page_id: (t.status, t.evidence) for t in notion_api.fetch_tasks()}  # nothing written before a decision
     finally:
         with db.connect() as conn:
