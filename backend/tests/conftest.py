@@ -27,3 +27,10 @@ def clean_source():
     with db.connect() as conn:
         for h in hashes:
             conn.execute("DELETE FROM sources WHERE content_hash = %s", (h,))
+
+
+@pytest.fixture(autouse=True)
+def no_queue_wait(monkeypatch):
+    """Tests share a database (and the 'run-' id namespace) with real runs; a real run waiting for review must not
+    stall them. The ordering tests in test_ordering.py put the real check back."""
+    monkeypatch.setattr("app.graph.unfinished_earlier_runs", lambda thread_id: 0)

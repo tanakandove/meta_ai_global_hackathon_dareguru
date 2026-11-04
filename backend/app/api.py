@@ -16,7 +16,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app import actions, notion_sync, queries, runner
+from app import actions, db, notion_sync, queries, runner
 from app.graph import set_run
 from app.transcribe import AudioError, check_wav
 
@@ -27,6 +27,7 @@ KINDS = {"audio", "transcript", "email", "text"}
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    db.init_schema()  # idempotent; a new column must exist before the first run writes to it
     runner.recover_stale_runs()  # runs a stopped server left mid-flight become retryable
     yield
 

@@ -21,6 +21,11 @@ def _hash(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def normalize_newlines(text: str) -> str:
+    """Browsers send pasted text with CRLF line endings; every parser here assumes LF. Whitespace-only lines become empty."""
+    return re.sub(r"\n[ \t]+(?=\n)", "\n", text.replace("\r\n", "\n").replace("\r", "\n"))
+
+
 def ingest_turns(
     turns: list[Turn], *, content_hash: str, occurred_at: datetime, tz: str,
     kind: str = "audio", audio_filename: str | None = None, raw_text: str | None = None,
@@ -69,8 +74,11 @@ def attach_turns(source_id: int, turns: list[Turn]) -> None:
 
 def parse_text_turns(text: str, kind: str) -> list[Turn]:
     """Turn pasted text into turns. 'Name: words' lines become named turns; an email becomes one turn from its sender."""
+    text = normalize_newlines(text)
     if kind == "email":
         head, _, body = text.partition("\n\n")
+        if not re.search(r"^[A-Za-z-]+:\s", head, re.M):  # no header block (a bare pasted body): keep everything
+            head, body = "", text
         sender = re.search(r"^From:\s*(.+)$", head, re.M | re.I)
         subject = re.search(r"^Subject:\s*(.+)$", head, re.M | re.I)
         who = re.sub(r"\s*<.*?>", "", sender.group(1)).strip() if sender else "sender"
@@ -85,5 +93,8 @@ def parse_text_turns(text: str, kind: str) -> list[Turn]:
 
 def ingest_text(text: str, *, kind: str, occurred_at: datetime, tz: str) -> tuple[int, bool]:
     """Ingest a pasted transcript, email or text update. No transcription step."""
+    text = normalize_newlines(text)
     turns = parse_text_turns(text, kind)
+    if not any(t.text.strip() for t in turns):
+        raise ValueError("The pasted text has no readable content.")
     return ingest_turns(turns, content_hash=_hash(text.encode()), occurred_at=occurred_at, tz=tz, kind=kind, raw_text=text)

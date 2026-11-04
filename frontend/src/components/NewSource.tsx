@@ -13,6 +13,9 @@ const KINDS: { id: Kind; label: string; hint: string }[] = [
   { id: "text", label: "Text update", hint: "Paste a message from chat or anywhere else." },
 ];
 
+const PAGE_OPENED = Date.now() - 5000; // runs started since this page opened stay listed, even across tabs
+const kindLabel = (k: string) => KINDS.find((x) => x.id === k)?.label ?? k;
+
 const today = () => new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in the viewer's timezone
 
 export function NewSource({ onGoToReview, onGoToFollowUps }: { onGoToReview: () => void; onGoToFollowUps: () => void }) {
@@ -24,10 +27,13 @@ export function NewSource({ onGoToReview, onGoToFollowUps }: { onGoToReview: () 
   const [tz, setTz] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [threadId, setThreadId] = useState<string | null>(null);
+  const [fileKey, setFileKey] = useState(0); // remounting the file input is how a chosen file is cleared
 
-  const run = usePolling(() => api.run(threadId!), 1000, threadId !== null);
-  const status = run.data?.status;
+  const runs = usePolling(api.runs, 1500);
+  // In the order the sources arrived, which is also the order they change Notion.
+  const mine = (runs.data ?? [])
+    .filter((r) => Date.parse(r.created_at) >= PAGE_OPENED && r.status !== "superseded")
+    .sort((a, b) => Date.parse(a.created_at) - Date.parse(b.created_at));
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -41,7 +47,9 @@ export function NewSource({ onGoToReview, onGoToFollowUps }: { onGoToReview: () 
       form.set("tz", tz);
       if (kind === "audio" && file) form.set("file", file);
       else form.set("text", text);
-      setThreadId((await api.createRun(form)).thread_id);
+      await api.createRun(form);
+      setFile(null); setText(""); setFileKey((k) => k + 1); // ready for the next source straight away
+      runs.reload();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -49,35 +57,38 @@ export function NewSource({ onGoToReview, onGoToFollowUps }: { onGoToReview: () 
     }
   };
 
-  const reset = () => { setThreadId(null); setFile(null); setText(""); setError(null); };
   const active = KINDS.find((k) => k.id === kind)!;
   const ready = kind === "audio" ? file !== null : text.trim().length > 0;
 
-  if (threadId) {
-    return (
-      <div className="narrow stack">
-        {run.data ? <RunProgress run={run.data} onRetry={run.reload} /> : <div className="card progress"><span className="spinner" /> Starting…</div>}
-        {status === "waiting_for_review" && (
-          <div className="card progress row">
-            <div style={{ flex: 1 }}><strong>{run.data?.items.length} item(s) are ready for your review.</strong><div className="muted">Nothing has been written to Notion yet.</div></div>
-            <button className="btn primary" onClick={onGoToReview}>Open Review Inbox</button>
-          </div>
-        )}
-        {status === "completed" && (
-          <div className="card progress row">
-            <div style={{ flex: 1 }}><strong>Done.</strong><div className="muted">{run.data?.message}</div></div>
-            <button className="btn primary" onClick={onGoToFollowUps}>Open Follow-Up Center</button>
-          </div>
-        )}
-        {status === "duplicate" && <div className="card progress"><strong>You have already added this.</strong><div className="muted">The same source was processed before, so nothing was repeated.</div></div>}
-        {status === "no_events" && <div className="card progress"><strong>Nothing to follow up.</strong><div className="muted">No commitments, requests or updates were found in this source.</div></div>}
-        {run.error && <div className="error">{run.error}</div>}
-        <button className="btn" onClick={reset}>Add another source</button>
-      </div>
-    );
-  }
+  const queue = mine.length > 0 && (
+    <div className="narrow stack">
+      <h3 style={{ margin: "8px 0 0" }}>Your sources</h3>
+      <p className="muted" style={{ margin: 0 }}>Sources are analysed together, but they change Notion in the order they arrived: each one waits for the ones before it.</p>
+      {mine.map((r, i) => (
+        <div key={r.thread_id} className="stack">
+          <div className="faint" style={{ fontSize: 13 }}>Source {i + 1}: {kindLabel(r.kind)}, added {new Date(r.created_at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}</div>
+          <RunProgress run={r} onRetry={runs.reload} />
+          {r.status === "waiting_for_review" && (
+            <div className="card progress row">
+              <div style={{ flex: 1 }}><strong>Ready for your review.</strong><div className="muted">Nothing has been written to Notion yet.</div></div>
+              <button className="btn primary" onClick={onGoToReview}>Open Review Inbox</button>
+            </div>
+          )}
+          {r.status === "completed" && (
+            <div className="card progress row">
+              <div style={{ flex: 1 }}><strong>Done.</strong><div className="muted">{r.message}</div></div>
+              <button className="btn primary" onClick={onGoToFollowUps}>Open Follow-Up Center</button>
+            </div>
+          )}
+          {r.status === "duplicate" && <div className="card progress"><strong>You have already added this.</strong><div className="muted">The same source was processed before, so nothing was repeated.</div></div>}
+          {r.status === "no_events" && <div className="card progress"><strong>Nothing to follow up.</strong><div className="muted">No commitments, requests or updates were found in this source.</div></div>}
+        </div>
+      ))}
+    </div>
+  );
 
   return (
+    <>
     <form className="narrow card stack" style={{ padding: 22 }} onSubmit={submit}>
       <div>
         <h2>Add a source</h2>
@@ -92,7 +103,7 @@ export function NewSource({ onGoToReview, onGoToFollowUps }: { onGoToReview: () 
 
       {kind === "audio" ? (
         <label className="drop" style={{ cursor: "pointer", fontWeight: 400 }}>
-          <input type="file" accept=".wav,audio/wav" style={{ display: "none" }} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
+          <input key={fileKey} type="file" accept=".wav,audio/wav" style={{ display: "none" }} onChange={(e) => setFile(e.target.files?.[0] ?? null)} />
           {file ? <strong>{file.name}</strong> : <><strong>Choose a WAV recording</strong><div>or drop one here</div></>}
         </label>
       ) : (
@@ -116,5 +127,7 @@ export function NewSource({ onGoToReview, onGoToFollowUps }: { onGoToReview: () 
       {error && <div className="error" role="alert">{error}</div>}
       <div><button className="btn primary" disabled={!ready || busy}>{busy ? "Starting…" : "Analyze"}</button></div>
     </form>
+    {queue}
+    </>
   );
 }

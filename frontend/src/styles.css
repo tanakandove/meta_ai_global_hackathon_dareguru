@@ -104,6 +104,8 @@ a { color: var(--accent-text); }
 .step.done { color: var(--text-2); }
 .step.done .dot { background: var(--green); border-color: var(--green); color: #fff; }
 .step.active { color: var(--text); font-weight: 600; }
+.step.skipped { color: var(--text-3); }
+.step.skipped .dot { border-style: dashed; }
 .step.failed { color: var(--red); font-weight: 600; }
 .step.failed .dot { background: var(--red); border-color: var(--red); color: #fff; }
 

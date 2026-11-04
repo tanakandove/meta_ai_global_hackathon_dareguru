@@ -153,8 +153,9 @@ def stream_rerun(thread_id: str, graph=None) -> tuple[str, Iterator[dict]]:
         actions.discard_for_rerun(conn, run["source_id"])
         new_id = "run-" + uuid.uuid4().hex[:12]
         conn.execute("UPDATE runs SET status = 'superseded', message = 'Replaced by a re-run.', updated_at = now() WHERE thread_id = %s", (thread_id,))
-        conn.execute("INSERT INTO runs (thread_id, source_id, kind, message, rerun_of) VALUES (%s, %s, %s, 'Queued', %s)",
-                     (new_id, run["source_id"], run["kind"], thread_id))
+        # A re-run keeps its original place in the queue, so sources that arrived after it still wait for it.
+        conn.execute("INSERT INTO runs (thread_id, source_id, kind, message, rerun_of, created_at) VALUES (%s, %s, %s, 'Queued', %s, %s)",
+                     (new_id, run["source_id"], run["kind"], thread_id, run["created_at"]))
     payload = {"thread_id": new_id, "kind": run["kind"], "occurred_at": src["occurred_at"].isoformat(), "tz": src["timezone"],
                "reuse_source": run["source_id"]}
     return new_id, _drive(graph or get_graph(), new_id, payload)

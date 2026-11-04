@@ -13,6 +13,7 @@ export interface Run {
   updated_at: string;
   undecided_item_ids?: number[];
   can_apply?: boolean;
+  skipped_review?: boolean;
 }
 
 export interface Speaker { label: string; name: string; confidence: string; basis: string }

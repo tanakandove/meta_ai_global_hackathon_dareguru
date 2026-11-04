@@ -25,3 +25,19 @@ def test_only_an_email_carrying_an_attachment_makes_a_completion_verified():
     assert _strength(no_file, "completion") == "claimed"
     assert _strength(meeting, "completion") == "claimed"   # a spoken claim is never verified
     assert _strength(email, "progress") == "claimed"       # only completion can be verified
+
+
+def test_a_browser_pasted_email_with_crlf_keeps_its_body():
+    mail = "Hi Alex,\r\n\r\nI delivered the display this morning.\r\n\r\nBest,\r\nJohn"
+    (turn,) = parse_text_turns(mail, "email")
+    assert "Hi Alex," in turn.text and "delivered the display" in turn.text and turn.text.endswith("John")
+
+
+def test_crlf_headers_still_split_from_the_body():
+    mail = "From: Priya Shah <p@example.com>\r\nSubject: Plan\r\n\r\nPlan attached."
+    (turn,) = parse_text_turns(mail, "email")
+    assert turn.speaker == "Priya Shah" and turn.text == "Subject: Plan. Plan attached."
+
+
+def test_crlf_transcript_lines_stay_separate_turns():
+    assert len(parse_text_turns("Dana: One.\r\n\r\nSam: Two.\r\n", "transcript")) == 2

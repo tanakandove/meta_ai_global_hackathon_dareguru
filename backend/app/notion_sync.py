@@ -4,6 +4,8 @@ Idempotent: running it repeatedly converges on the current Notion state.
 Tasks deleted in Notion are not removed here because commitments may reference them.
 People are not a Notion database, so owner names are clustered to absorb typos.
 """
+import threading
+
 from app import db, notion_api
 from app.names import cluster_names
 
@@ -96,7 +98,15 @@ def refresh_task(conn, t: notion_api.NotionTask) -> None:
                  project["id"] if project else None)
 
 
+_SYNC_LOCK = threading.Lock()  # runs analyse in parallel; two syncs writing the same rows at once would collide
+
+
 def sync() -> dict[str, int]:
+    with _SYNC_LOCK:
+        return _sync()
+
+
+def _sync() -> dict[str, int]:
     tasks = notion_api.fetch_tasks()
 
     with db.connect() as conn:

@@ -305,7 +305,7 @@ def test_progress_events_are_streamed_node_by_node(world):
     thread, events = runner.stream_start("transcript", occurred_at=MEETING, tz=TZ, text=TEXT, graph=graph)
     seen = [e for e in events]
     nodes = [e["node"] for e in seen if e["event"] == "node"]
-    assert nodes == ["ingest", "retrieve_context", "extract", "match", "reconcile"]
+    assert nodes == ["ingest", "retrieve_context", "extract", "wait_turn", "match", "reconcile"]
     assert seen[-2]["event"] == "waiting_for_review" and seen[-1] == {"event": "stopped", "status": "waiting_for_review"}
 
 
@@ -377,3 +377,15 @@ def test_runs_left_running_by_a_stopped_server_become_retryable():
     finally:
         with db.connect() as conn:
             conn.execute("DELETE FROM runs WHERE thread_id = 'gtest-stale-1'")
+
+
+def test_a_source_restating_finished_work_says_nothing_needed_attention_and_skips_review(world):
+    graph, _ = world["make_graph"]()
+    first = start(graph)
+    approve_all(first)
+    reviewed = runner.apply_run(first["thread_id"], graph)
+    assert reviewed["skipped_review"] is False and reviewed["message"].startswith("Applied ")
+    again, _ = world["make_graph"]([ev("completion_claim", 0, "Priya", "cabling plan", "I sent the cabling plan to Facilities again today")])
+    second = start(again, "Priya: I sent the cabling plan to Facilities again today.")
+    assert second["status"] == "completed" and second["skipped_review"] is True
+    assert "Nothing needed your attention" in second["message"]

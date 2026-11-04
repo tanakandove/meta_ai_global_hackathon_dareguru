@@ -1,6 +1,6 @@
 """The ProjectPulse LangGraph workflow (see docs/graph-design.md for the diagram).
 
-ingest -> transcribe (audio only) -> retrieve_context -> extract -> match -> reconcile
+ingest -> transcribe (audio only) -> retrieve_context -> extract -> wait_turn -> match -> reconcile
        -> human_review (interrupt) -> validate -> execute -> persist
 
 Built to be driven by a UI:
@@ -50,12 +50,14 @@ class Deps:
 
 # ---- run bookkeeping ----------------------------------------------------------------------------
 
-def set_run(thread_id: str, status: str, node: str | None = None, message: str = "", source_id: int | None = None) -> None:
+def set_run(thread_id: str, status: str, node: str | None = None, message: str = "", source_id: int | None = None,
+            skipped_review: bool | None = None) -> None:
     with db.connect() as conn:
         conn.execute(
             """UPDATE runs SET status = %s, current_node = COALESCE(%s, current_node), message = %s,
-                      source_id = COALESCE(%s, source_id), updated_at = now() WHERE thread_id = %s""",
-            (status, node, message, source_id, thread_id))
+                      source_id = COALESCE(%s, source_id), skipped_review = COALESCE(%s, skipped_review),
+                      updated_at = now() WHERE thread_id = %s""",
+            (status, node, message, source_id, skipped_review, thread_id))
 
 
 def step(name: str, fn: Callable[[State], dict]) -> Callable[[State], dict]:
@@ -76,6 +78,36 @@ def step(name: str, fn: Callable[[State], dict]) -> Callable[[State], dict]:
                     raise
                 time.sleep(1)
     return run
+
+
+# ---- ordering -----------------------------------------------------------------------------------
+
+WAIT_POLL_SECONDS = 2.0
+
+
+def unfinished_earlier_runs(thread_id: str) -> int:
+    """Runs that started before this one and are not yet applied or ended. A failed run does not block."""
+    with db.connect() as conn:
+        return conn.execute(
+            """SELECT count(*) AS n FROM runs me JOIN runs r ON r.thread_id <> me.thread_id
+                AND split_part(r.thread_id, '-', 1) = split_part(me.thread_id, '-', 1)
+                AND (r.created_at, r.thread_id) < (me.created_at, me.thread_id)
+               WHERE me.thread_id = %s AND r.status IN ('running', 'waiting_for_review')""", (thread_id,)).fetchone()["n"]
+
+
+def wait_for_turn(thread_id: str) -> bool:
+    """Block until every earlier run has finished. Returns True if it had to wait.
+
+    Sources are analysed in parallel, but a source may only read Notion and propose changes once the sources
+    that arrived before it are done, so a later source always sees what an earlier one changed.
+    """
+    waited = False
+    while (n := unfinished_earlier_runs(thread_id)):
+        waited = True
+        set_run(thread_id, "running", "wait_turn",
+                f"Waiting for {n} earlier source{'s' if n > 1 else ''} to finish. Sources are applied in the order they arrived.")
+        time.sleep(WAIT_POLL_SECONDS)
+    return waited
 
 
 # ---- graph --------------------------------------------------------------------------------------
@@ -114,6 +146,11 @@ def build_graph(checkpointer, deps: Deps | None = None):
         if n == 0:
             set_run(state["thread_id"], "no_events", "extract", "Nothing actionable was found in this source.")
         return {"event_count": n}
+
+    def n_wait_turn(state: State) -> dict:
+        if wait_for_turn(state["thread_id"]):
+            d.refresh_fn()  # the earlier sources changed Notion, so match against what it holds now
+        return {}
 
     def n_match(state: State) -> dict:
         return {"matches": reconcile.match_source(state["source_id"])}
@@ -162,7 +199,11 @@ def build_graph(checkpointer, deps: Deps | None = None):
             items = actions.decided_open(conn, state["source_id"])
             for item in items:
                 actions.apply_item(conn, item)
-        set_run(state["thread_id"], "completed", "persist", f"Applied {len(items)} decision(s).")
+        if items:
+            set_run(state["thread_id"], "completed", "persist", f"Applied {len(items)} decision(s).", skipped_review=False)
+        else:  # every review item needs a decision, so none means nothing was ever put in front of the person
+            set_run(state["thread_id"], "completed", "persist",
+                    "Nothing needed your attention: the tasks this source mentions were already up to date.", skipped_review=True)
         return {}
 
     # -- routing: each function answers "where does the diagram's arrow go next?"
@@ -189,14 +230,15 @@ def build_graph(checkpointer, deps: Deps | None = None):
 
     g = StateGraph(State)
     for name, fn in [("ingest", n_ingest), ("transcribe", n_transcribe), ("retrieve_context", n_context),
-                     ("extract", n_extract), ("match", n_match), ("reconcile", n_reconcile),
+                     ("extract", n_extract), ("wait_turn", n_wait_turn), ("match", n_match), ("reconcile", n_reconcile),
                      ("human_review", n_review), ("validate", n_validate), ("execute", n_execute), ("persist", n_persist)]:
         g.add_node(name, step(name, fn))
     g.add_edge(START, "ingest")
     g.add_conditional_edges("ingest", after_ingest, {"end": END, "transcribe": "transcribe", "retrieve_context": "retrieve_context"})
     g.add_edge("transcribe", "retrieve_context")
     g.add_edge("retrieve_context", "extract")
-    g.add_conditional_edges("extract", after_extract, {"end": END, "match": "match"})
+    g.add_conditional_edges("extract", after_extract, {"end": END, "match": "wait_turn"})
+    g.add_edge("wait_turn", "match")
     g.add_edge("match", "reconcile")
     g.add_conditional_edges("reconcile", after_reconcile, {"human_review": "human_review", "persist": "persist"})
     g.add_conditional_edges("human_review", after_review, {"validate": "validate", "execute": "execute", "persist": "persist"})

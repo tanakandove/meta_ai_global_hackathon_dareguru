@@ -205,3 +205,5 @@ ALTER TABLE runs DROP CONSTRAINT IF EXISTS runs_status_check;
 ALTER TABLE runs ADD CONSTRAINT runs_status_check CHECK (status IN (
     'running', 'waiting_for_review', 'completed', 'duplicate', 'no_events', 'failed', 'superseded'));
 ALTER TABLE runs ADD COLUMN IF NOT EXISTS rerun_of TEXT;
+-- True when the source produced nothing for a person to decide, so review, validate and execute never ran.
+ALTER TABLE runs ADD COLUMN IF NOT EXISTS skipped_review BOOLEAN NOT NULL DEFAULT false;
