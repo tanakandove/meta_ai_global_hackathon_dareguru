@@ -8,21 +8,44 @@ from app import db, notion_api
 from app.names import cluster_names
 
 
-def _sync_projects(conn) -> dict[str, int]:
-    """Upsert projects from Notion; return notion page id -> projects.id."""
+def _sync_projects(conn, projects: list[notion_api.NotionProject] | None = None) -> dict[str, int]:
+    """Upsert projects from Notion; return notion page id -> projects.id.
+
+    A Notion page id is a project's identity, so a rename in Notion renames the row instead of adding a second
+    one. A project first stored by name only (before page ids were kept) is adopted by its name.
+    """
     ids: dict[str, int] = {}
-    for p in notion_api.fetch_projects():
-        row = conn.execute(
-            """INSERT INTO projects (name, aliases, notion_page_id, client)
-               VALUES (%s, %s, %s, %s)
-               ON CONFLICT (name) DO UPDATE SET
-                   aliases = EXCLUDED.aliases, notion_page_id = EXCLUDED.notion_page_id,
-                   client = EXCLUDED.client
-               RETURNING id""",
-            (p.name, p.aliases, p.page_id, p.client),
-        ).fetchone()
+    for p in projects if projects is not None else notion_api.fetch_projects():
+        values = (p.name, p.aliases, p.client)
+        row = (
+            conn.execute(
+                "UPDATE projects SET name = %s, aliases = %s, client = %s WHERE notion_page_id = %s RETURNING id",
+                (*values, p.page_id)).fetchone()
+            or conn.execute(
+                """UPDATE projects SET aliases = %s, client = %s, notion_page_id = %s
+                   WHERE name = %s AND notion_page_id IS NULL RETURNING id""",
+                (p.aliases, p.client, p.page_id, p.name)).fetchone()
+            or conn.execute(
+                "INSERT INTO projects (name, aliases, client, notion_page_id) VALUES (%s, %s, %s, %s) RETURNING id",
+                (*values, p.page_id)).fetchone()
+        )
         ids[p.page_id] = row["id"]
     return ids
+
+
+_NOTION_ID = "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+
+
+def prune_stale_tasks(conn, live_ids: list[str]) -> int:
+    """Forget cached tasks that no longer exist in Notion, so they cannot compete with real ones.
+
+    A task that a commitment or a match still points at is kept. Only real Notion ids are considered.
+    """
+    return conn.execute(
+        f"""DELETE FROM notion_tasks WHERE notion_page_id ~ '{_NOTION_ID}' AND notion_page_id <> ALL(%s)
+            AND NOT EXISTS (SELECT 1 FROM commitments c WHERE c.notion_page_id = notion_tasks.notion_page_id)
+            AND NOT EXISTS (SELECT 1 FROM task_matches m WHERE m.notion_page_id = notion_tasks.notion_page_id)""",
+        (live_ids,)).rowcount
 
 
 def _sync_people(conn, owner_names: list[str]) -> tuple[dict[str, str], dict[str, int]]:
@@ -88,7 +111,8 @@ def sync() -> dict[str, int]:
             owner = owner_canonical.get(t.owner, t.owner)
             _upsert_task(conn, t, owner, project_names.get(t.project_page_id, ""),
                          person_ids.get(owner), project_ids.get(t.project_page_id))
-    return {"tasks": len(tasks), "projects": len(project_ids), "people": len(person_ids)}
+        removed = prune_stale_tasks(conn, [t.page_id for t in tasks])
+    return {"tasks": len(tasks), "projects": len(project_ids), "people": len(person_ids), "removed": removed}
 
 
 if __name__ == "__main__":
