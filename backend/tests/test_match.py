@@ -1,6 +1,6 @@
 from datetime import date
 
-from app.match import candidates_for, resolve_project, score_task
+from app.match import candidates_for, resolve_project, restates_finished_work, score_task
 
 MID, HARBOR, EAST = 1, 2, 3
 
@@ -59,3 +59,25 @@ def test_event_hint_beats_meeting_project():
     assert resolve_project("Harbor Library Kiosks", "MidTown Community Dashboard", PROJECTS) == HARBOR
     assert resolve_project(None, "midtown community dashboard", PROJECTS) == MID
     assert resolve_project(None, "unknown", PROJECTS) is None
+
+
+def test_restating_finished_work_is_recognised_but_new_work_is_not():
+    tasks = TASKS + [task("done-deliver", "Pick up and deliver the digital display to the site", "John", MID, status="Done")]
+    assert restates_finished_work("the display delivery", "John", tasks, MID)
+    assert not restates_finished_work("cabling plan", "Priya", tasks, MID)          # an open task explains it better
+    assert not restates_finished_work("the display delivery", "John", tasks, HARBOR)  # other projects do not count
+    assert not restates_finished_work("order catering", None, tasks, MID)
+
+
+def test_matching_tolerates_word_endings():
+    task_ = task("deliver", "Pick up and deliver the digital display to the site", "John", MID)
+    assert score_task("the display has been delivered", None, task_) > score_task("the display has been mounted", None, task_)
+
+
+def test_a_restatement_is_judged_by_what_was_said_not_by_its_neighbours():
+    tasks = TASKS + [
+        task("done-deliver", "Pick up and deliver the digital display to the site", "John", MID, status="Done"),
+        task("install", "Install digital display at University Circle site", "Alex", MID),
+    ]
+    assert restates_finished_work("display So the display has been delivered", None, tasks, MID)
+    assert not restates_finished_work("display installation Alex is scheduled to install the display", "Alex", tasks, MID)

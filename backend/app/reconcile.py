@@ -16,7 +16,7 @@ from psycopg.types.json import Jsonb
 from pydantic import BaseModel, ConfigDict
 
 from app import db, llm
-from app.match import MIN_SCORE, TOP_K, Candidate, candidates_for, resolve_project, score_task
+from app.match import MIN_SCORE, TOP_K, Candidate, candidates_for, resolve_project, restates_finished_work, score_task
 
 Confidence = Literal["high", "medium", "low"]
 LIVE_STATES = ("proposed", "open", "resolution_proposed")
@@ -357,6 +357,9 @@ def match_source(source_id: int) -> dict:
         "project_of": {str(k): v for k, v in project_of.items()},
         "pass1": {str(e["id"]): cands(e["deliverable"], e) for e in events if e["type"] in ("commitment", "request")},
         "pass2": {str(e["id"]): cands(_about(events, e), e) for e in events if e["type"] in ("completion_claim", "progress", "blocker")},
+        # restatements of finished work: nothing is left to do, so they get no review card
+        "already_done": [e["id"] for e in events if e["type"] in ("completion_claim", "progress", "blocker")
+                         and restates_finished_work(f'{e["deliverable"]} {e["excerpt"]}', e["owner_name"], rows, project_of[e["id"]])],
     }
 
 
@@ -383,7 +386,8 @@ def reconcile_source(source_id: int, call: LLMCall = llm.structured_call, matche
         for e in pass1:
             _apply_pass1(conn, e, decisions1.get(e["id"]), cands1[e["id"]], project_of[e["id"]], tasks, made, stats)
 
-    pass2 = [e for e in events if e["type"] in ("completion_claim", "progress", "blocker")]
+    finished = set(m.get("already_done", []))
+    pass2 = [e for e in events if e["type"] in ("completion_claim", "progress", "blocker") and e["id"] not in finished]
     cands2 = {
         e["id"]: sorted([Candidate(**c) for c in m["pass2"][str(e["id"])]] + _virtual_candidates(_about(events, e), e["owner_name"], made),
                         key=lambda c: -c.score)[:TOP_K]

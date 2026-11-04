@@ -79,6 +79,7 @@ Event types:
 Rules:
 - One event per distinct statement. A turn may hold several. Ignore small talk.
 - excerpt is copied verbatim from the transcript: a contiguous span from a single turn. turn_index is that turn's index.
+- A question or request for a status update ("can you give us an update on the NUC?", "what about the mounting points?") is not a request for work. Emit no event for it: the answer to it is what matters.
 - owner is the person responsible. For a commitment or completion_claim it is usually the speaker. For a request it is the person asked; if that person accepts in a later turn, also emit a commitment for them. For a suggestion, decision or blocker, the person it concerns, or "" if unknown.
 - Speakers are labeled with letters (A, B, C...) in recordings, or already with names in written sources; for a name label, use that name with confidence high. For letter labels, infer each label's real name from the conversation (someone is addressed by name and then answers; someone introduces themselves) and from the known people list. Give a name only when the conversation supports it; otherwise name "" with confidence "low". Spell names exactly as in the known people list when one matches. basis is one short sentence on how you know.
 - deliverable is a short noun phrase for what is owed or discussed.

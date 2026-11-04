@@ -8,14 +8,15 @@ import pytest
 from app import db
 from app.transcribe import Turn
 
-FIXTURES = Path(__file__).resolve().parents[2] / "fixtures"
+FIXTURES = Path(__file__).resolve().parent / "fixtures"      # test-only data
+DEMO = Path(__file__).resolve().parents[2] / "fixtures"     # the demo recording and texts
 MEETING_AT = datetime(2026, 10, 31, 10, 0, tzinfo=ZoneInfo("America/New_York"))  # a Saturday
 TZ = "America/New_York"
 
 
 @pytest.fixture(scope="session")
 def meeting_turns() -> list[Turn]:
-    return [Turn(**t) for t in json.loads((FIXTURES / "meeting.turns.json").read_text())]
+    return [Turn(**t) for t in json.loads((FIXTURES / "sample_meeting.turns.json").read_text())]
 
 
 @pytest.fixture

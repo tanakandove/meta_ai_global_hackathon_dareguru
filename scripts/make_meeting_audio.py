@@ -1,8 +1,8 @@
-"""Build the synthetic demo meeting (fixtures/meeting.wav) from a scripted dialogue.
+"""Build the demo meeting recording (fixtures/meeting.wav) from its script.
 
-Each speaker gets a distinct Piper voice so Muse Voice Transcribe's diarization
-has separate speakers to label. Output is mono 16-bit PCM at 16 kHz, which is
-what POST /v1/asr/transcribe accepts.
+The University Circle installation-preparation meeting, spoken by three distinct text-to-speech voices so
+Muse Voice Transcribe's diarization has separate speakers to label. Output is mono 16-bit PCM at 16 kHz,
+which is what POST /v1/asr/transcribe accepts.
 
 Run with a Python that has piper-tts installed:
     python scripts/make_meeting_audio.py --voices VOICE_DIR --out fixtures/meeting.wav
@@ -18,26 +18,22 @@ TARGET_RATE = 16000
 PAUSE_SECONDS = 0.7
 
 VOICES = {
-    "Dana": "en_US-amy-medium",
-    "Sam": "en_US-ryan-medium",
-    "Priya": "en_US-lessac-medium",
-    "Marcus": "en_GB-alan-medium",
-    "Alex": "en_US-joe-medium",
+    "John": "en_US-ryan-medium",
+    "Adam": "en_US-joe-medium",
+    "Matthew": "en_GB-alan-medium",
 }
 
-# Written the way people talk: most speakers are addressed by name, so Muse Spark can work out who is who
-# from context. Nobody speaks to Sam, so he stays unidentified and the reviewer assigns him. Deadlines are
-# plain weekdays ("by Friday", "by Wednesday") so they resolve the same way on every take.
+# The meeting is held on November 13, 2026, the day before Alex installs the display. It is the script as
+# written, plus one word: Adam's "Yes, John." lets John, whom nobody else addresses, be identified from context.
 DIALOGUE = [
-    ("Dana", "Morning everyone. Quick sync on the MidTown dashboard install. Priya, how is the cabling plan?"),
-    ("Priya", "Good news, Dana. I sent the cabling plan to Facilities yesterday, and they have everything they need."),
-    ("Dana", "Great. Marcus, where are we on the display mounting?"),
-    ("Marcus", "Thanks, Dana. I've started measuring the display mounting locations, but I'm blocked on access to the second floor."),
-    ("Sam", "We could consider contacting the vendor about the rack mounts, but I'm not sure that's needed yet."),
-    ("Dana", "Okay. I'll send the revised hardware specifications to Facilities by Friday."),
-    ("Dana", "Alex, can you get the NUC configuration checklist ready by Wednesday?"),
-    ("Alex", "Yes, I'll have it done by Wednesday."),
-    ("Dana", "Perfect. That's it. Thanks everyone."),
+    ("John", "Thanks for joining. Before Alex installs the display tomorrow, I want to make sure all the preparation work is complete. Adam, can you give us an update on the NUC?"),
+    ("Adam", "Yes, John. I've finished configuring the NUC. I've connected it to the network, tested the dashboard, and confirmed that it boots and launches correctly. It's ready for installation."),
+    ("John", "Great. Matthew, what about the mounting points?"),
+    ("Matthew", "I've drilled the mounting holes at the agreed locations. I also checked the spacing against the display bracket. The wall is ready for the screen."),
+    ("John", "Perfect. So the display has been delivered, the NUC is configured, and the mounting points are ready. Alex is still scheduled to install the display tomorrow, November 14."),
+    ("Adam", "Everything on my end is ready."),
+    ("Matthew", "Same here."),
+    ("John", "Great. That's all for today."),
 ]
 
 

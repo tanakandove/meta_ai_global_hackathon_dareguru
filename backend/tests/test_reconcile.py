@@ -213,3 +213,19 @@ def test_a_lone_unrelated_blocker_still_goes_to_review(world):
     world["add"]("blocker", "second floor access", speaker="D", turn=3)
     reconcile_source(world["sid"], call=fake_model([]))
     assert [r["kind"] for r in rows("SELECT kind FROM review_items WHERE source_id = %s", world["sid"])] == ["uncertain_extraction"]
+
+
+def test_restating_finished_work_creates_no_card_and_asks_the_model_nothing(world):
+    with db.connect() as conn:
+        conn.execute(
+            """INSERT INTO notion_tasks (notion_page_id, title, owner_name, due_date, status, project_id, notion_last_edited)
+               VALUES (%s, 'Pick up and deliver the digital display to the site', 'John', NULL, 'Done', %s, now())""",
+            (PREFIX + "done-deliver", world["mid"]))
+    world["add"]("completion_claim", "the display delivery", speaker="A", name="John")
+
+    def boom(*a):
+        raise AssertionError("a restatement of finished work needs no model call")
+
+    assert reconcile_source(world["sid"], call=boom) == {"commitments": 0, "review_items": 0, "evidence": 0}
+    assert rows("SELECT 1 FROM review_items WHERE source_id = %s", world["sid"]) == []
+    assert rows("SELECT 1 FROM events WHERE source_id = %s AND reconciled_at IS NULL", world["sid"]) == []

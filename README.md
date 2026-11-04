@@ -2,11 +2,29 @@
 
 **From conversations to verified follow-through.** ProjectPulse turns what your team says in meetings, emails and chat threads into tracked commitments, keeps your Notion records up to date, and shows what was done and what still needs doing. A person approves every change.
 
-![The Follow-Up Center showing a commitment from a meeting, closed by a verified email](docs/images/follow-up-center.png)
-
 > Built for the Meta Global AI Developer Hackathon (Indie track) with **Muse Voice Transcribe** (meeting audio, one voice per speaker) and **Muse Spark** (finding commitments and matching them to your existing work), through the Meta Model API.
 
-## Why ProjectPulse
+## The story behind it
+
+Hi, I'm Tanaka Ndove, and I'm a Project Manager at Oberlin College's Environmental Dashboard.
+
+We work on R&D software that helps colleges and public schools monitor their electricity and water consumption. We also work with city councils on air-quality monitoring.
+
+I coordinate around 20 meetings every week. In these meetings, people make commitments, discuss decisions, report progress, and identify blockers.
+
+But here's the problem: we use Notion to manage our projects, and there's a disconnect between what happens in these meetings and what's recorded in Notion.
+
+Someone promises to deliver something, but the task doesn't get created. Someone says they've completed something, but the existing task isn't updated. Important decisions and follow-ups get lost.
+
+I spend approximately **15 hours every week** manually reviewing meeting information, updating project records, and following up with people.
+
+I realized that we don't have a meeting-notes problem. **We have a follow-through problem.**
+
+That's why I built ProjectPulse.
+
+ProjectPulse isn't another AI meeting summarizer. It's an agentic system that connects conversations to existing project work, identifies commitments and completion claims, reconciles new evidence, and helps teams follow through.
+
+## The problem, in general
 
 People attend meetings, send emails, and reply in Slack threads. In all of them, people make commitments: *"I'll send the specs by Friday."* *"I'll have the checklist done by Wednesday."*
 
@@ -14,7 +32,7 @@ And still, things fall through the cracks. A promise is never written down, or i
 
 Meeting summarizers are everywhere now, but they stop at the summary. You get a paragraph and a list of action items that nobody copies into the tracker. Your Notion board still says "Not started" on a task that was finished yesterday, and still has no card for the thing someone promised this morning. **The gap isn't summarizing. It's following through.**
 
-ProjectPulse closes that loop. It processes the conversation, finds the commitments, connects each one to the work you already track, notices later when evidence arrives that a commitment was met, and writes the result back to Notion once a person approves it. I built it because this is a problem my team has been trying to solve.
+ProjectPulse closes that loop. It processes the conversation, finds the commitments, connects each one to the work you already track, notices later when evidence arrives that a commitment was met, and writes the result back to Notion once a person approves it.
 
 ### Not another meeting summarizer
 
